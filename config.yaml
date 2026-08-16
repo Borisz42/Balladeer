@@ -1,0 +1,46 @@
+hardware:
+  device: "cuda:0"
+  max_vram_gb: 8.0
+  pinned_ram_gb: 12.0
+  enable_pinned_memory: true
+
+indexing:
+  vlm_model: "unsloth/Qwen3.5-4B-GGUF"
+  vlm_quant: "Q4_K_M"
+  quality_threshold: 6.0
+  scene_detection_threshold: 0.3
+  clip_model: "sentence-transformers/clip-ViT-B-32"
+  fallback_to_heuristic: true
+
+audio:
+  music_model: "infosave/MiniMax-Music-3-cmf"
+  cmf_filename: "minimax-music3-q4tp.cmf"
+  sample_rate: 32000
+  beat_snap_tolerance_sec: 0.25
+  default_tempo_bpm: 120.0
+  demucs_model: "htdemucs"
+  alignment_model: "MMS_FA"
+
+comfyui:
+  host: "127.0.0.1"
+  port: 8188
+  auto_launch: false
+  model_path: "data/weights/minimax-music3/minimax-music3-q4tp.cmf"
+
+video:
+  resolution: [1920, 1080]
+  fps: 30
+  photo_beat_range: [1, 3]
+  video_beat_range: [2, 5]
+  default_bg_mode: "blurred_fill" # Options: "blurred_fill", "black_bars", "ken_burns_zoom"
+  enable_ken_burns: false
+  blur_radius: 25
+  blur_scale: 1.25
+  nvenc_preset: "p6"
+  video_codec: "h264_nvenc" # Fallback: "libx264"
+  audio_bitrate: "320k"
+
+huggingface:
+  api_key: ""
+  vlm_model_id: "unsloth/Qwen3.5-4B-GGUF"
+  clip_model_id: "sentence-transformers/clip-ViT-B-32"
