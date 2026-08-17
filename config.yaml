@@ -11,6 +11,14 @@ indexing:
   scene_detection_threshold: 0.3
   clip_model: "sentence-transformers/clip-ViT-B-32"
   fallback_to_heuristic: true
+  batch_size: 20
+  max_parallel_workers: 4
+
+google_ai:
+  api_key: ""
+  only_local_ai: false
+  batch_size: 20
+  enable_cloud_waterfall: true
 
 audio:
   music_model: "infosave/MiniMax-Music-3-cmf"
@@ -20,6 +28,7 @@ audio:
   default_tempo_bpm: 120.0
   demucs_model: "htdemucs"
   alignment_model: "MMS_FA"
+  enable_local_synthesis: false
 
 comfyui:
   host: "127.0.0.1"

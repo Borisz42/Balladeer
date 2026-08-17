@@ -1,122 +1,256 @@
 import os
 import json
+import asyncio
 import logging
-import subprocess
-from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple, Callable
 import numpy as np
 from PIL import Image, ExifTags
 
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
 from app.core.config import get_settings
-from app.core.memory_manager import memory_manager
 from app.database.database import db
 from app.database.models import MediaAssetModel, VideoSegmentModel
 from app.models.qwen_vlm import qwen_vlm
+from app.models.clip_embedder import clip_embedder
+from app.models.gemini_client import gemini_client
+from app.models.model_router import model_router, TaskType
 
-logger = logging.getLogger(__name__)
-
-_clip_model = None
-
-def get_clip_model():
-    global _clip_model
-    if _clip_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            settings = get_settings()
-            device = "cuda" if memory_manager.is_cuda else "cpu"
-            hf_token = settings.huggingface.api_key or os.environ.get("HF_TOKEN") or None
-            _clip_model = SentenceTransformer(settings.indexing.clip_model, device=device, token=hf_token)
-        except Exception as e:
-            logger.debug(f"CLIP load note: {e}")
-            _clip_model = None
-    return _clip_model
+logger = logging.getLogger("balladeer.indexer")
 
 class MediaIndexer:
     """
-    Phase 1: Ingestion, EXIF Parsing, Scene Detection, Video Sub-Segments, VLM Tagging & CLIP Embeddings.
+    Phase 1: 2-Step Parallel Media Ingestion & Multi-Modal Indexing Engine.
+    
+    Step 1: Rapid Media Staging (Fast EXIF, dimensions, video duration, and thumbnail generation).
+    Step 2: Batch AI Vision Indexing via Intelligent Multi-Tier Model Waterfall (Gemini -> Gemma -> Local Qwen).
     """
 
     def __init__(self):
         self.settings = get_settings()
 
-    def extract_image_metadata(self, file_path: Path) -> Dict[str, Any]:
-        metadata = {
-            "width": 0,
-            "height": 0,
-            "capture_time": datetime.utcnow().isoformat(),
-            "duration_sec": 0.0,
-            "media_type": "image"
+    def get_thumbnail_path(self, asset_id: str) -> Path:
+        thumb_dir = self.settings.output_dir / "thumbnails"
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        return thumb_dir / f"{asset_id}.jpg"
+
+    def generate_thumbnail(self, media_path: Path, asset_id: str, media_type: str, max_dim: int = 400) -> Optional[str]:
+        """Generates and saves a fast JPEG thumbnail for photos and video frames using ffmpeg / PIL."""
+        try:
+            thumb_path = self.get_thumbnail_path(asset_id)
+            if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                return str(thumb_path)
+
+            p = Path(media_path)
+            is_image = p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} or media_type == "image"
+
+            if is_image:
+                with Image.open(p) as img:
+                    img = img.convert("RGB")
+                    img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+                    img.save(thumb_path, "JPEG", quality=80)
+                    return str(thumb_path)
+            else:
+                # Video file: use ffmpeg to extract 1 frame
+                import subprocess
+                cmd = [
+                    "ffmpeg", "-y", "-ss", "0.5", "-i", str(p),
+                    "-vframes", "1", "-vf", f"scale='min({max_dim},iw)':-1",
+                    "-q:v", "2", str(thumb_path)
+                ]
+                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+                if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                    return str(thumb_path)
+
+                # Fallback to 0s if 0.5s is past duration
+                cmd_zero = [
+                    "ffmpeg", "-y", "-ss", "0", "-i", str(p),
+                    "-vframes", "1", "-vf", f"scale='min({max_dim},iw)':-1",
+                    "-q:v", "2", str(thumb_path)
+                ]
+                subprocess.run(cmd_zero, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+                if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                    return str(thumb_path)
+
+                # Fallback to cv2 if available
+                if cv2 is not None:
+                    cap = cv2.VideoCapture(str(p))
+                    if cap.isOpened():
+                        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 1)
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, total_frames // 2))
+                        ret, frame = cap.read()
+                        cap.release()
+                        if ret and frame is not None:
+                            h, w = frame.shape[:2]
+                            scale = min(max_dim / max(h, w, 1), 1.0)
+                            if scale < 1.0:
+                                frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+                            cv2.imwrite(str(thumb_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                            return str(thumb_path)
+        except Exception as e:
+            logger.warning(f"Failed to generate thumbnail for {media_path.name}: {e}")
+        return None
+
+    def extract_image_metadata(self, image_path: Path) -> Dict[str, Any]:
+        meta = {
+            "capture_time": None,
+            "width": None,
+            "height": None,
         }
         try:
-            with Image.open(file_path) as img:
-                metadata["width"], metadata["height"] = img.size
-                exif_data = img._getexif()
+            with Image.open(image_path) as img:
+                meta["width"], meta["height"] = img.size
+                exif_data = img.getexif()
                 if exif_data:
                     for tag_id, value in exif_data.items():
-                        tag = ExifTags.TAGS.get(tag_id, tag_id)
-                        if tag in ("DateTimeOriginal", "DateTimeDigitized", "DateTime"):
+                        tag_name = ExifTags.TAGS.get(tag_id, tag_id)
+                        if tag_name in ("DateTimeOriginal", "DateTime"):
                             try:
                                 dt = datetime.strptime(str(value), "%Y:%m:%d %H:%M:%S")
-                                metadata["capture_time"] = dt.isoformat()
+                                meta["capture_time"] = dt.isoformat()
                                 break
                             except Exception:
                                 pass
         except Exception as e:
-            logger.debug(f"Image EXIF notice: {e}")
-        return metadata
+            logger.warning(f"Could not parse EXIF for {image_path.name}: {e}")
 
-    def extract_video_metadata(self, file_path: Path) -> Dict[str, Any]:
-        metadata = {
+        if not meta["capture_time"]:
+            mtime = os.path.getmtime(image_path)
+            meta["capture_time"] = datetime.fromtimestamp(mtime).isoformat()
+
+        return meta
+
+    def extract_video_metadata(self, video_path: Path) -> Dict[str, Any]:
+        meta = {
+            "capture_time": None,
+            "duration_sec": 0.0,
             "width": 1920,
             "height": 1080,
-            "capture_time": datetime.utcnow().isoformat(),
-            "duration_sec": 5.0,
-            "media_type": "video"
+            "fps": 30.0
         }
-        cmd = [
-            "ffprobe", "-v", "quiet", "-print_format", "json",
-            "-show_format", "-show_streams", str(file_path)
-        ]
+        # 1. Primary: Use ffprobe
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            probe = json.loads(res.stdout)
-            fmt = probe.get("format", {})
-            if "duration" in fmt:
-                metadata["duration_sec"] = float(fmt["duration"])
-            if "tags" in fmt and "creation_time" in fmt["tags"]:
-                try:
-                    dt = datetime.fromisoformat(fmt["tags"]["creation_time"].replace("Z", "+00:00"))
-                    metadata["capture_time"] = dt.isoformat()
-                except Exception:
-                    pass
+            import subprocess
+            cmd = [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height,duration,r_frame_rate",
+                "-show_entries", "format=duration",
+                "-of", "json", str(video_path)
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8, text=True)
+            if res.returncode == 0:
+                data = json.loads(res.stdout)
+                streams = data.get("streams", [])
+                if streams:
+                    s = streams[0]
+                    meta["width"] = int(s.get("width") or 1920)
+                    meta["height"] = int(s.get("height") or 1080)
+                    if "duration" in s and s["duration"]:
+                        meta["duration_sec"] = round(float(s["duration"]), 2)
+                    elif "format" in data and "duration" in data["format"] and data["format"]["duration"]:
+                        meta["duration_sec"] = round(float(data["format"]["duration"]), 2)
 
-            for stream in probe.get("streams", []):
-                if stream.get("codec_type") == "video":
-                    metadata["width"] = int(stream.get("width", 1920))
-                    metadata["height"] = int(stream.get("height", 1080))
-                    break
+                    r_fps = s.get("r_frame_rate", "30/1")
+                    if "/" in r_fps:
+                        num, den = r_fps.split("/")
+                        if float(den) > 0:
+                            meta["fps"] = round(float(num) / float(den), 2)
         except Exception as e:
-            logger.debug(f"ffprobe notice for {file_path}: {e}")
+            logger.debug(f"ffprobe metadata notice on {video_path.name}: {e}")
+
+        # 2. Fallback to cv2 if needed
+        if meta["duration_sec"] <= 0.0 and cv2 is not None:
             try:
-                metadata["capture_time"] = datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
-            except Exception:
-                pass
-        return metadata
+                cap = cv2.VideoCapture(str(video_path))
+                if cap.isOpened():
+                    meta["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or meta["width"])
+                    meta["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or meta["height"])
+                    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+                    if fps > 0:
+                        meta["fps"] = fps
+                    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    if meta["fps"] > 0 and frame_count > 0:
+                        meta["duration_sec"] = round(frame_count / meta["fps"], 2)
+                    cap.release()
+            except Exception as e:
+                logger.debug(f"cv2 metadata notice on {video_path.name}: {e}")
+
+        mtime = os.path.getmtime(video_path)
+        meta["capture_time"] = datetime.fromtimestamp(mtime).isoformat()
+        return meta
+
+    def stage_media_files(self, project_id: str, file_paths: List[Path]) -> List[MediaAssetModel]:
+        """
+        Step 1: Rapidly registers uploaded/chosen files into the database with thumbnails
+        and basic EXIF/video dimensions, marking is_indexed=False.
+        """
+        staged: List[MediaAssetModel] = []
+        video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+        for idx, p in enumerate(file_paths):
+            is_video = p.suffix.lower() in video_exts
+            asset_id = f"ast_{p.stem}_{int(datetime.utcnow().timestamp()*1000)%10000000}_{idx}"
+            
+            if is_video:
+                meta = self.extract_video_metadata(p)
+                media_type = "video"
+                duration_sec = meta["duration_sec"]
+            else:
+                meta = self.extract_image_metadata(p)
+                media_type = "image"
+                duration_sec = 0.0
+
+            # Generate thumbnail
+            self.generate_thumbnail(p, asset_id, media_type)
+
+            asset = MediaAssetModel(
+                id=asset_id,
+                project_id=project_id,
+                file_path=str(p.resolve()),
+                media_type=media_type,
+                capture_time=meta["capture_time"],
+                duration_sec=duration_sec,
+                quality_score=7.0,
+                caption=f"{p.stem.replace('_', ' ').replace('-', ' ').title()}",
+                tags=["pending"],
+                embedding=None,
+                is_active=True,
+                is_indexed=False,
+                indexed_by_model=None,
+                width=meta["width"],
+                height=meta["height"]
+            )
+            db.add_media_asset(asset)
+            staged.append(asset)
+
+        return staged
+
+    def generate_clip_embedding(self, text_or_image: Any) -> List[float]:
+        return clip_embedder.encode(text_or_image)
 
     def extract_video_subsegments(
         self,
-        video_path: Path,
-        asset_id: str,
+        arg1: Any,
+        arg2: Any,
         duration_sec: float
     ) -> List[VideoSegmentModel]:
-        """
-        Detects multiple scene cuts in video and calculates motion energy scores for sub-segments.
-        """
+        if isinstance(arg1, Path) or (isinstance(arg1, str) and ("." in arg1 or "/" in arg1 or "\\" in arg1)):
+            video_path = Path(arg1)
+            asset_id = str(arg2)
+        else:
+            asset_id = str(arg1)
+            video_path = Path(arg2)
+
+        v_name = video_path.name if isinstance(video_path, Path) else str(video_path)
+
         segments: List[VideoSegmentModel] = []
         if duration_sec <= 3.0:
-            # Single segment
-            emb = self.generate_clip_embedding(video_path.name)
+            emb = self.generate_clip_embedding(v_name)
             return [
                 VideoSegmentModel(
                     id=f"seg_{asset_id}_0",
@@ -129,15 +263,13 @@ class MediaIndexer:
                 )
             ]
 
-        # Slice long video into 2.5s - 4.0s action subsegments
         step = 3.0
         current_t = 0.0
         idx = 0
         while current_t < duration_sec:
             end_t = min(current_t + step, duration_sec)
-            # Simulated motion score based on position variation
             motion = 0.5 + (0.35 * np.sin(idx * 1.3))
-            emb = self.generate_clip_embedding(f"{video_path.name} subclip {idx}")
+            emb = self.generate_clip_embedding(f"{v_name} subclip {idx}")
 
             segments.append(
                 VideoSegmentModel(
@@ -155,106 +287,196 @@ class MediaIndexer:
 
         return segments
 
-    def generate_clip_embedding(self, text_or_image: Any) -> List[float]:
-        model = get_clip_model()
-        if model is not None:
-            try:
-                if isinstance(text_or_image, (str, Path)):
-                    if str(text_or_image).lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-                        img = Image.open(text_or_image)
-                        emb = model.encode(img)
-                    else:
-                        emb = model.encode(str(text_or_image))
-                elif isinstance(text_or_image, Image.Image):
-                    emb = model.encode(text_or_image)
-                else:
-                    emb = model.encode(str(text_or_image))
-                
-                emb_norm = emb / np.linalg.norm(emb)
-                return emb_norm.tolist()
-            except Exception as e:
-                logger.debug(f"CLIP encoding notice: {e}")
+    def get_visual_path(self, asset: MediaAssetModel) -> Path:
+        """Returns the image path or video thumbnail path for AI vision processing."""
+        p = Path(asset.file_path)
+        if asset.media_type == "video":
+            thumb_path = self.get_thumbnail_path(asset.id)
+            if not thumb_path.exists() or thumb_path.stat().st_size == 0:
+                self.generate_thumbnail(p, asset.id, "video")
+            if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                return thumb_path
+        return p
 
-        seed = abs(hash(str(text_or_image))) % (2**32)
-        rng = np.random.RandomState(seed)
-        vec = rng.randn(512).astype(np.float32)
-        vec /= np.linalg.norm(vec)
-        return vec.tolist()
+    async def index_pending_assets(
+        self,
+        project_id: str,
+        asset_ids: Optional[List[str]] = None,
+        batch_size: Optional[int] = None,
+        progress_callback: Optional[Callable[[str, float], Any]] = None
+    ) -> List[MediaAssetModel]:
+        """
+        Step 2: Executes AI indexing on non-indexed or selected assets (both photos and videos)
+        using the Model Priority Waterfall.
+        """
+        all_assets = db.get_project_assets(project_id)
+        if asset_ids:
+            target_assets = [a for a in all_assets if a.id in asset_ids]
+        else:
+            target_assets = [a for a in all_assets if not a.is_indexed]
 
-    def index_media_file(self, project_id: str, file_path: Path) -> MediaAssetModel:
-        is_video = file_path.suffix.lower() in (".mp4", ".mov", ".avi", ".mkv", ".webm")
-        asset_id = f"ast_{file_path.stem}_{int(datetime.utcnow().timestamp()*1000)%10000000}"
+        if not target_assets:
+            logger.info("No pending unindexed assets to process.")
+            return []
 
-        if is_video:
-            meta = self.extract_video_metadata(file_path)
-            vlm_res = {
-                "caption": f"Video clip: {file_path.name.rsplit('.', 1)[0].replace('_', ' ')}",
-                "tags": ["video", "action", "cinematic"],
-                "quality_score": 8.0
-            }
-            emb = self.generate_clip_embedding(file_path.name)
+        settings = get_settings()
+        chunk_size = batch_size or settings.google_ai.batch_size or 20
+        total_count = len(target_assets)
+        processed_count = 0
+        indexed_results: List[MediaAssetModel] = []
 
-            asset = MediaAssetModel(
-                id=asset_id,
-                project_id=project_id,
-                file_path=str(file_path.resolve()),
-                media_type="video",
-                capture_time=meta["capture_time"],
-                duration_sec=meta["duration_sec"],
-                quality_score=vlm_res["quality_score"],
-                caption=vlm_res["caption"],
-                tags=vlm_res["tags"],
-                embedding=emb,
-                is_active=True,
-                width=meta["width"],
-                height=meta["height"]
+        chunks = [target_assets[i : i + chunk_size] for i in range(0, len(target_assets), chunk_size)]
+
+        for chunk_idx, chunk in enumerate(chunks):
+            visual_paths = [self.get_visual_path(a) for a in chunk]
+            est_tokens = len(visual_paths) * 800
+
+            vlm_results, model_used = await model_router.execute_task(
+                task_type=TaskType.VISION_BATCH,
+                prompt_payload=visual_paths,
+                estimated_tokens=est_tokens,
+                cloud_caller=gemini_client.analyze_image_batch,
+                local_fallback=qwen_vlm.describe_and_score_batch
             )
-            # Ensure asset is persisted first to satisfy foreign key constraints
-            db.add_media_asset(asset)
 
-            # Sub-segment indexing
-            subsegments = self.extract_video_subsegments(file_path, asset_id, meta["duration_sec"])
+            logger.info(f"[Indexer] Indexed batch {chunk_idx+1}/{len(chunks)} ({len(chunk)} media items) using: {model_used}")
+
+            for idx, asset in enumerate(chunk):
+                p = Path(asset.file_path)
+                analysis = vlm_results[idx] if idx < len(vlm_results) else {
+                    "caption": f"Scene: {p.stem}",
+                    "tags": ["travel"],
+                    "quality_score": 7.0
+                }
+                emb = self.generate_clip_embedding(analysis["caption"])
+
+                if asset.media_type == "video":
+                    segs = self.extract_video_subsegments(asset.id, p, asset.duration_sec)
+                    with db.get_connection() as conn:
+                        for s in segs:
+                            conn.execute(
+                                """
+                                INSERT OR REPLACE INTO video_segments (id, asset_id, start_time, end_time, motion_score, description, embedding)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (s.id, s.asset_id, s.start_time, s.end_time, s.motion_score, s.description,
+                                 np.array(s.embedding, dtype=np.float32).tobytes() if s.embedding else None)
+                            )
+
+                updated = db.update_media_asset(asset.id, {
+                    "caption": analysis["caption"],
+                    "tags": analysis["tags"],
+                    "quality_score": analysis["quality_score"],
+                    "embedding": emb,
+                    "is_indexed": True,
+                    "indexed_by_model": model_used
+                })
+                if updated:
+                    indexed_results.append(updated)
+                processed_count += 1
+
+            if progress_callback:
+                pct = (processed_count / total_count) * 100.0
+                cb = progress_callback(
+                    f"Indexed {processed_count}/{total_count} files via {model_used}",
+                    pct
+                )
+                if asyncio.iscoroutine(cb):
+                    await cb
+
+        return indexed_results
+
+    async def reindex_single_asset(self, project_id: str, asset_id: str) -> Optional[MediaAssetModel]:
+        asset = db.get_asset(asset_id)
+        if not asset:
+            return None
+
+        p = Path(asset.file_path)
+        if not p.exists():
+            raise FileNotFoundError(f"Media file not found at {asset.file_path}")
+
+        visual_path = self.get_visual_path(asset)
+        vlm_results, model_used = await model_router.execute_task(
+            task_type=TaskType.VISION_BATCH,
+            prompt_payload=[visual_path],
+            estimated_tokens=800,
+            cloud_caller=gemini_client.analyze_image_batch,
+            local_fallback=qwen_vlm.describe_and_score_batch
+        )
+        analysis = vlm_results[0] if vlm_results else {
+            "caption": f"Scene: {p.stem}",
+            "tags": ["travel"],
+            "quality_score": 7.5
+        }
+        emb = self.generate_clip_embedding(analysis["caption"])
+
+        if asset.media_type == "video":
+            segs = self.extract_video_subsegments(asset.id, p, asset.duration_sec)
             with db.get_connection() as conn:
-                for seg in subsegments:
+                for s in segs:
                     conn.execute(
                         """
                         INSERT OR REPLACE INTO video_segments (id, asset_id, start_time, end_time, motion_score, description, embedding)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
-                        (
-                            seg.id,
-                            seg.asset_id,
-                            seg.start_time,
-                            seg.end_time,
-                            seg.motion_score,
-                            seg.description,
-                            np.array(seg.embedding, dtype=np.float32).tobytes() if seg.embedding else None
-                        )
+                        (s.id, s.asset_id, s.start_time, s.end_time, s.motion_score, s.description,
+                         np.array(s.embedding, dtype=np.float32).tobytes() if s.embedding else None)
                     )
 
-            return asset
-        else:
-            meta = self.extract_image_metadata(file_path)
-            vlm_res = qwen_vlm.describe_and_score(file_path, file_path.name)
-            emb = self.generate_clip_embedding(file_path)
+        return db.update_media_asset(asset.id, {
+            "caption": analysis["caption"],
+            "tags": analysis["tags"],
+            "quality_score": analysis["quality_score"],
+            "embedding": emb,
+            "is_indexed": True,
+            "indexed_by_model": model_used
+        })
 
-            asset = MediaAssetModel(
-                id=asset_id,
-                project_id=project_id,
-                file_path=str(file_path.resolve()),
-                media_type="image",
-                capture_time=meta["capture_time"],
-                duration_sec=0.0,
-                quality_score=vlm_res["quality_score"],
-                caption=vlm_res["caption"],
-                tags=vlm_res["tags"],
-                embedding=emb,
-                is_active=True,
-                width=meta["width"],
-                height=meta["height"]
-            )
-            db.add_media_asset(asset)
-            return asset
+    def index_media_file(self, project_id: str, file_path: Path) -> MediaAssetModel:
+        """Legacy synchronous helper for single file tests/scripts."""
+        staged = self.stage_media_files(project_id, [file_path])
+        asset = staged[0]
+        vlm_res = qwen_vlm.describe_and_score(file_path)
+        emb = self.generate_clip_embedding(vlm_res["caption"])
 
-indexer = MediaIndexer()
+        if asset.media_type == "video":
+            segs = self.extract_video_subsegments(asset.id, file_path, asset.duration_sec)
+            with db.get_connection() as conn:
+                for s in segs:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO video_segments (id, asset_id, start_time, end_time, motion_score, description, embedding)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (s.id, s.asset_id, s.start_time, s.end_time, s.motion_score, s.description,
+                         np.array(s.embedding, dtype=np.float32).tobytes() if s.embedding else None)
+                    )
 
+        return db.update_media_asset(asset.id, {
+            "caption": vlm_res["caption"],
+            "tags": vlm_res["tags"],
+            "quality_score": vlm_res["quality_score"],
+            "embedding": emb,
+            "is_indexed": True,
+            "indexed_by_model": "local-qwen3.5-4b"
+        })
+
+    async def index_media_batch(
+        self,
+        project_id: str,
+        file_paths: List[Path],
+        batch_size: Optional[int] = None,
+        progress_callback: Optional[Callable[[str, float], Any]] = None
+    ) -> List[MediaAssetModel]:
+        """Stages and immediately indexes a batch of media files."""
+        staged = self.stage_media_files(project_id, file_paths)
+        staged_ids = [a.id for a in staged]
+        return await self.index_pending_assets(
+            project_id=project_id,
+            asset_ids=staged_ids,
+            batch_size=batch_size,
+            progress_callback=progress_callback
+        )
+
+media_indexer = MediaIndexer()
+indexer = media_indexer

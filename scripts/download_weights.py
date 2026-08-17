@@ -18,10 +18,17 @@ MODELS_INFO = {
     },
     "qwen3.5-4b": {
         "repo_id": "unsloth/Qwen3.5-4B-GGUF",
-        "description": "Qwen 3.5 4B VLM Scene Captioner & Quality Scorer (Q4_K_M GGUF)",
+        "description": "Qwen 3.5 4B Vision & Language Model (Q4_K_M GGUF + MMProj)",
         "ram_gb": 1.0,
         "vram_gb": 2.8,
-        "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf", "*.json"]
+        "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf", "*mmproj*.gguf", "*.json"]
+    },
+    "qwen3.5-9b": {
+        "repo_id": "unsloth/Qwen3.5-9B-GGUF",
+        "description": "Qwen 3.5 9B High-Capacity Vision & Language Model (Q4_K_M GGUF + MMProj)",
+        "ram_gb": 2.0,
+        "vram_gb": 5.8,
+        "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf", "*mmproj*.gguf", "*.json"]
     },
     "minimax-music3": {
         "repo_id": "infosave/MiniMax-Music-3-cmf",
@@ -96,7 +103,7 @@ def download_model(model_name: str, dest_dir: Path, token: str = None) -> bool:
             logger.warning(f"Demucs fetch note: {e}")
 
     else:
-        # Qwen VLM (GGUF Q4_K_M) / MiniMax Music 3 CMF (~6GB)
+        # Qwen VLM (GGUF Q4_K_M + mmproj) / MiniMax Music 3 CMF (~6GB)
         try:
             from huggingface_hub import snapshot_download
             hf_token = token or os.environ.get("HF_TOKEN")
@@ -117,7 +124,7 @@ def download_model(model_name: str, dest_dir: Path, token: str = None) -> bool:
             logger.info(f"    [SAVED TO]: {Path(download_dir).resolve()}")
             return True
         except Exception as e:
-            logger.warning(f"HuggingFace snapshot notice for {model_name} ({e}). Dual execution pipeline will use Hugging Face Free API / local procedural fallback.")
+            logger.warning(f"HuggingFace snapshot notice for {model_name} ({e}). Dual execution pipeline will use local procedural fallback.")
             return True
 
     return True
@@ -141,14 +148,18 @@ def main():
 
     targets = list(MODELS_INFO.keys()) if "all" in args.models else args.models
 
-    logger.info("================================================================")
-    logger.info("          Balladeer Model Weight Manager & Pre-Fetcher          ")
-    logger.info("================================================================")
+    logger.info("=================================================================")
+    logger.info("   BALLADEER LOCAL AI WEIGHT STAGING & VERIFICATION TOOL")
+    logger.info("=================================================================")
+    logger.info(f"Target directory: {dest.resolve()}")
+    logger.info(f"Requested models: {', '.join(targets)}")
+    logger.info("-----------------------------------------------------------------")
 
-    for target in targets:
-        download_model(target, dest, token=args.token)
+    for m in targets:
+        download_model(m, dest, args.token)
 
-    logger.info("\n✨ Model preparation routine complete. Hardware memory budget verified for 8GB RTX 3070.")
+    logger.info("=================================================================")
+    logger.info("✓ Model verification complete.")
 
 if __name__ == "__main__":
     main()

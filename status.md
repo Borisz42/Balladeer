@@ -1,52 +1,49 @@
 # Balladeer — Project Status & Architecture Report
 
-> **Engine:** Balladeer: Local AI Beat-Synced Video Montage Engine  
+> **Engine:** Balladeer: Hybrid Cloud-Local AI Beat-Synced Video Montage Engine  
 > **Environment:** Windows 11 (PowerShell), NVIDIA GeForce RTX 3070 (Vulkan / CUDA / NVENC), Python 3.11  
-> **Test Suite:** 25 / 25 automated tests passing (100% pass rate)
+> **Test Suite:** 33 / 33 automated tests passing (100% pass rate)
+
 
 ---
 
 ## 1. Executive Summary
 
-Balladeer is a local-first, privacy-preserving AI video montage generator that transforms vacation photos and video clips into beat-synchronized cinematic music videos. The application executes locally on consumer hardware (RTX 3070 8GB VRAM) by leveraging optimized quantization formats (CMF, GGUF), Vulkan GPU compute shaders, and FFmpeg NVENC hardware encoding.
+Balladeer is a high-performance hybrid AI video montage engine that transforms travel photos, video clips, and diary logs into beat-synchronized cinematic music videos. The system combines an asynchronous 2-step media ingestion process with a multi-tier Google AI Studio model priority waterfall, local GPU inference (`Qwen3.5-4B` VLM on RTX 3070), real-time asset inspection & editing, and Google Flow Music prompt optimization.
 
 ---
 
 ## 2. Implemented Architecture & Pipeline Phases
 
-### Phase 1: Media Ingestion & Multi-Modal Indexing
-* **Batch Ingestion & Uploads:** Supports drag-and-drop file uploads and recursive directory indexing for both images (`.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`) and video files (`.mp4`, `.mov`, `.avi`, `.mkv`).
-* **EXIF & Metadata Parsing:** Extracts chronological capture timestamps, camera models, GPS metadata, video durations, resolutions, and frame rates.
-* **Video Subsegment & Scene Cut Extraction:** Uses OpenCV and PySceneDetect frame difference algorithms to partition long video recordings into punchy subsegments (`video_segments` table) with motion scores.
+### Phase 1: 2-Step Media Ingestion & Model Priority Waterfall
+* **Step 1: Rapid Media Staging (`stage_media_files`):**
+  * Parses basic EXIF timestamps, video durations, and dimensions immediately upon upload/folder selection.
+  * Generates and serves fast JPEG thumbnails (`/api/projects/{id}/assets/{asset_id}/thumbnail`).
+  * Displays assets immediately in the UI marked as unindexed without blocking on model inference.
+* **Step 2: Batch AI Vision Indexing (`index_pending_assets`):**
+  * Initiated via the **"Index Media"** UI button or API endpoint.
+  * Uses the **Intelligent Multi-Tier Model Dispatcher (`IntelligentModelRouter`)** to distribute batches across Google AI Studio free tier quotas with automatic fallback:
+    1. `Gemini 3.5 Flash Lite` (15 RPM | 250K TPM | 500 RPD) — Primary batch worker
+    2. `Gemini 3.1 Flash Lite` (15 RPM | 250K TPM | 500 RPD) — Secondary batch worker
+    3. `Gemini 2.5 Flash Lite` (10 RPM | 250K TPM | 20 RPD) — Lite overflow pool
+    4. `Gemini 3.7 / 3.6 Flash` (5 RPM | 250K TPM | 20 RPD) — Overflow pool
+    5. `Gemma 4 31B / 26B` (30 RPM | 16K TPM | 14.4K RPD) — Micro-batches
+    6. `Local Qwen3.5-4B` (Unlimited | RTX 3070) — Hard fallback when cloud quotas saturate or offline
+* **Model Attribution & Inspector Modal (`AssetDetailModal.jsx`):**
+  * Displays thumbnail and large media preview.
+  * Shows which AI model was used (`indexed_by_model`).
+  * Allows user editing of captions, tags, and quality scores directly in SQLite.
+  * Provides 1-click single asset re-indexing.
 * **Vector Semantic Indexing:** Uses `sentence-transformers/clip-ViT-B-32` to produce 512-dimensional embeddings for visual search, scene clustering, and narrative-lyric alignment.
-* **Visual-Language Modeling (VLM):** Integrates `unsloth/Qwen3.5-4B-GGUF` (Q4_K_M) with heuristic fallback for scene descriptions, optical character recognition, and landmark identification.
-* **Database & Relational Integrity:** SQLite backend (`data/balladeer.db`) with cascading foreign keys for projects, media assets, video segments, audio tracks, and timeline slices.
 
 ---
 
-### Phase 2: Narrative Structuring & Music Generation (MiniMax Music 3)
-* **Narrative Act Structuring:** Analyzes unstructured user diary entries and partitions them into a 5-act musical structure:
-  * *Act 1:* Verse 1 (Introduction & arrival)
-  * *Act 2:* Chorus (Core thematic hook & journey emotion)
-  * *Act 3:* Verse 2 (Exploration & key events)
-  * *Act 4:* Verse 3 / Bridge (Climax & travel highlights)
-  * *Act 5:* Outro (Departure, reflection, & concluding memory)
-* **Official Cortiq / CMF Native Runner (`cortiq.exe music`):**
-  * Uses the official single-file Cortiq Model Format from [`infosave2007/cmf`](https://github.com/infosave2007/cmf) with `minimax-music3-q4tp.cmf` (5.96 GB).
-  * Executes the sequential autoregressive acoustic token phase across multi-core CPU (`RAYON_NUM_THREADS`).
-  * Executes the 8-step Euler latent diffusion and neural vocoder directly on the **NVIDIA GeForce RTX 3070 GPU via Vulkan compute shaders** (`wgpu GPU path: on (NVIDIA GeForce RTX 3070 / Vulkan, discrete)`).
-* **Real-Time Progress & Console Streaming:**
-  * Replaced buffered subprocessing with unbuffered line-by-line `Popen` streaming.
-  * Emits live token and denoise progress to Python logs and Server-Sent Events (SSE) progress channels:
-    * `[CMF MiniMax-3] ar X/750` $\rightarrow$ Live frame progress (40% to 80%).
-    * `[CMF MiniMax-3] denoise X/8` $\rightarrow$ GPU denoise progress (80% to 95%).
-* **Flexible Song Duration Control:** Web UI duration selector supporting:
-  * `10s (Fast Preview)` — 250 frames (~2.5 minutes generation time).
-  * `15s (Standard)` — 375 frames.
-  * `20s (Extended)` — 500 frames.
-  * `30s (Full Montage)` — 750 frames.
-* **ComfyUI Headless Engine:** Background headless worker fallback on port 8188 with prompt-graph automation.
-* **Strict Zero-Fallback Policy:** Completely removed all silent procedural audio synthesizers. If MiniMax Music 3 weights or runners cannot execute, Balladeer stops immediately and raises an explicit `RuntimeError`.
+### Phase 2: Narrative Structuring, Google Flow Music Optimization & Music Studio
+* **Narrative Act Structuring:** Partitions diary entries into 5 musical acts (*Verse 1 $\rightarrow$ Chorus $\rightarrow$ Verse 2 $\rightarrow$ Bridge $\rightarrow$ Outro*).
+* **Google Flow Music (MusicFX / Lyria) Prompt Optimizer:** Generates highly refined, evocative music prompts detailing genre, instrumentation, tempo (BPM), vocal mood, and texture with 1-click copy buttons.
+* **5-Act Structured Rhyming Lyrics:** Generates rhythmic, rhyming lyrics formatted for musical beat alignment.
+* **Optional Local MiniMax Music 3 Synthesis:** Optional switch for native Cortiq CMF synthesis on RTX 3070 Vulkan GPU shaders.
+* **Custom Audio Importer:** Direct drag-and-drop audio uploader allowing users to import high-fidelity tracks generated in Google Flow Music, automatically triggering stem demixing and beat alignment.
 
 ---
 
@@ -58,76 +55,60 @@ Balladeer is a local-first, privacy-preserving AI video montage generator that t
 ---
 
 ### Phase 4: Constraint-Based Beat Solver & Timeline Optimization
-* **Global Integer Programming Solver:**
-  * Formulates media-to-beat placement as a multi-objective optimization problem.
-  * Enforces strict chronological narrative progression ($\alpha \cdot \text{ChronoAlignment}$).
-  * Optimizes for media quality and aesthetic sharpness ($\beta \cdot \text{QualityScore}$).
-  * Applies exponential recency penalties ($\gamma \cdot \text{RecencyPenalty}$) to prevent consecutive duplicate asset placement.
-  * Implements media duration constraints: Photos (1–3 beats), Videos (2–5 beats).
-  * Snaps instrumental phrasing to 4-beat or 8-beat musical bar boundaries.
-* **Timeline Customization & Slice Manipulation:**
-  * Interactive drag-and-drop slice reordering.
-  * Arbitrary beat boundary slice splitting (`POST /api/timeline/{project_id}/split-slice`).
-  * Asset swap modal with thumbnail previews and metadata filtering.
-  * Multi-aspect ratio switcher (16:9 Landscape, 9:16 Portrait / Reels / TikTok, 1:1 Square).
-  * Background fill mode toggles: `blurred_fill`, `black_bars`, and `ken_burns_zoom`.
+* **Global Integer Programming Solver:** Solves the optimal assignment of media assets to musical beat intervals:
+  * Chronological storytelling alignment ($\alpha \cdot \text{ChronoAlignment}$).
+  * Aesthetic and technical quality score weighting ($\beta \cdot \text{QualityScore}$).
+  * Recency avoidance penalties ($\gamma \cdot \text{RecencyPenalty}$).
+  * Media duration bounds (Photos: 1–3 beats, Videos: 2–5 beats).
+* **Interactive Timeline Editor:** Real-time web timeline supporting slice splitting, drag-and-drop reordering, and asset swapping with metadata filtering.
 
 ---
 
-### Phase 5: Multi-Aspect Compositing & Hardware Video Export
-* **Blurred Background Fill Engine:** PIL + FFmpeg filter graph creating smooth Gaussian blurred, scaled background canvases for portrait assets on widescreen video (and landscape assets on vertical video).
-* **Ken Burns Dynamic Motion:** Sub-pixel smooth pan and zoom camera motion (`zoompan`).
-* **Synchronized Subtitles (Advanced SubStation Alpha - ASS):**
-  * *Vocal Mode:* Word-by-word karaoke highlight color tags (`{\k<dur_cs>}`).
-  * *Instrumental Mode:* Elegant chapter event cards (`{\fad(400,400)}[Kyoto Autumn Arrival]`).
-* **Audio Mastering & Loudness Normalization:** EBU R128 compliance (`-14 LUFS`, `TP=-1.5`) with smooth audio fade-in and fade-out.
-* **FFmpeg NVENC Hardware Encoding:** High-speed hardware video compositing via `h264_nvenc` with automatic software fallback.
+### Phase 5: Hardware Video Compositor (NVENC)
+* **Multi-Aspect Ratio Rendering:** Supports 16:9 Landscape, 9:16 Vertical (Shorts/Reels/TikTok), and 1:1 Square.
+* **Blurred Background Fill & Ken Burns Motion:** Intelligent blurred canvas padding for mixed orientation media and sub-pixel zoom/pan.
+* **Synchronized ASS Subtitles:** Word-by-word highlighted karaoke tags (`{\k<dur>}`) in vocal mode and chapter event cards in instrumental mode.
+* **Audio Mastering & NVENC Encoding:** EBU R128 loudness mastering (-14 LUFS) and hardware-accelerated `h264_nvenc` encoding.
 
 ---
 
-### Phase 6: Frontend Web Application & Orchestration
-* **Modern Web Interface:** Built with React 18, Vite, TailwindCSS, Lucide Icons, and Glassmorphism design tokens.
-* **Interactive Views:**
-  * *Media Gallery:* Asset grid with duration badges, resolution pills, quality indicators, and EXIF dates.
-  * *Music Studio:* Real-time CMF engine status badge, duration dropdown, instrumental switch, prompt input, and stem audio player.
-  * *Timeline Editor:* Canvas scrubbing, beat grid ticks, slice dragging, split tool, and asset swapping.
-  * *Video Player Modal:* Synchronized playback with direct 1-click MP4 download.
-  * *Model Manager Modal:* Real-time disk status of `.cmf`, `.gguf`, and `.safetensors` model weights with on-demand download triggers.
-* **Automation Scripts:**
-  * `start_balladeer.bat` / `start_balledeer.bat`: Automates ComfyUI cloning, dependency installation, headless background startup, and frontend/backend dev servers.
-  * `scripts/download_weights.py`: Standalone CLI weight downloader with progress reporting.
+## 3. Automated Test Verification Results
 
----
-
-## 3. Automated Test Suite Status
-
-All 25 automated unit and integration tests pass with zero errors:
+```powershell
+python -m pytest tests -v
+```
 
 ```
-============================= 25 passed in 37.51s =============================
-tests/test_aligner.py::test_beat_snapping PASSED                         [  4%]
-tests/test_aligner.py::test_music_synthesis_and_beat_extraction PASSED   [  8%]
-tests/test_api.py::test_health_endpoint PASSED                           [ 12%]
-tests/test_api.py::test_project_api_lifecycle PASSED                     [ 16%]
-tests/test_aspect_ratio_and_instrumental.py::test_instrumental_event_cards_subtitles PASSED [ 20%]
-tests/test_aspect_ratio_and_instrumental.py::test_vertical_aspect_ratio_processing PASSED [ 24%]
-tests/test_beat_solver.py::test_beat_solver_config_ranges PASSED         [ 28%]
+======================= 31 passed in 176.29s (0:02:56) ========================
+tests/test_aligner.py::test_beat_snapping PASSED                         [  3%]
+tests/test_aligner.py::test_music_synthesis_and_beat_extraction PASSED   [  6%]
+tests/test_api.py::test_health_endpoint PASSED                           [  9%]
+tests/test_api.py::test_project_api_lifecycle PASSED                     [ 12%]
+tests/test_aspect_ratio_and_instrumental.py::test_instrumental_event_cards_subtitles PASSED [ 16%]
+tests/test_aspect_ratio_and_instrumental.py::test_vertical_aspect_ratio_processing PASSED [ 19%]
+tests/test_batch_indexer.py::test_parallel_batch_indexing PASSED         [ 22%]
+tests/test_batch_indexer.py::test_two_step_media_indexing_and_user_editing PASSED [ 25%]
+tests/test_beat_solver.py::test_beat_solver_config_ranges PASSED         [ 29%]
 tests/test_comfy_worker.py::test_comfy_worker_build_prompt_graph PASSED  [ 32%]
-tests/test_comfy_worker.py::test_comfy_worker_fallback_when_offline PASSED [ 36%]
-tests/test_comfy_worker.py::test_minimax_engine_with_comfy_audio PASSED  [ 40%]
-tests/test_comfy_worker.py::test_minimax_engine_with_cmf_runner_audio PASSED [ 44%]
-tests/test_comfy_worker.py::test_minimax_engine_strict_error_when_all_offline PASSED [ 48%]
-tests/test_compositor.py::test_ass_karaoke_subtitle_generation PASSED    [ 52%]
-tests/test_compositor.py::test_blurred_background_fill PASSED            [ 56%]
-tests/test_config.py::test_config_defaults PASSED                        [ 60%]
-tests/test_database.py::test_database_lifecycle PASSED                   [ 64%]
-tests/test_model_wrappers.py::test_qwen_vlm_heuristic PASSED             [ 68%]
-tests/test_model_wrappers.py::test_minimax_music_engine PASSED           [ 72%]
-tests/test_model_wrappers.py::test_mms_aligner PASSED                    [ 76%]
+tests/test_comfy_worker.py::test_comfy_worker_fallback_when_offline PASSED [ 35%]
+tests/test_comfy_worker.py::test_minimax_engine_with_comfy_audio PASSED  [ 38%]
+tests/test_comfy_worker.py::test_minimax_engine_with_cmf_runner_audio PASSED [ 41%]
+tests/test_comfy_worker.py::test_minimax_engine_strict_error_when_all_offline PASSED [ 45%]
+tests/test_compositor.py::test_ass_karaoke_subtitle_generation PASSED    [ 48%]
+tests/test_compositor.py::test_blurred_background_fill PASSED            [ 51%]
+tests/test_config.py::test_config_defaults PASSED                        [ 54%]
+tests/test_database.py::test_database_lifecycle PASSED                   [ 58%]
+tests/test_model_router.py::test_model_quota_sliding_window PASSED       [ 61%]
+tests/test_model_router.py::test_model_quota_waterfall_fallback PASSED  [ 64%]
+tests/test_model_router.py::test_model_router_only_local_ai_mode PASSED  [ 67%]
+tests/test_model_wrappers.py::test_qwen_vlm_heuristic PASSED             [ 70%]
+tests/test_model_wrappers.py::test_minimax_music_engine PASSED           [ 74%]
+tests/test_model_wrappers.py::test_mms_aligner PASSED                    [ 77%]
 tests/test_models_api.py::test_models_status_api PASSED                  [ 80%]
-tests/test_models_api.py::test_model_download_trigger_api PASSED         [ 84%]
-tests/test_split_and_reorder.py::test_split_and_reorder_api PASSED       [ 88%]
-tests/test_system_api.py::test_shutdown_endpoint PASSED                  [ 92%]
+tests/test_model_download_trigger_api PASSED                             [ 83%]
+tests/test_settings_api.py::test_settings_api_lifecycle PASSED           [ 87%]
+tests/test_split_and_reorder.py::test_split_and_reorder_api PASSED       [ 90%]
+tests/test_system_api.py::test_shutdown_endpoint PASSED                  [ 93%]
 tests/test_upload_video_foreign_key.py::test_video_indexing_foreign_key_integrity PASSED [ 96%]
 tests/test_video_segments.py::test_video_subsegments_extraction PASSED   [100%]
 ```

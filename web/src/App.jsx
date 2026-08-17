@@ -9,12 +9,16 @@ import VideoPlayerModal from './components/VideoPlayerModal';
 import ModelManagerModal from './components/ModelManagerModal';
 import {
   fetchHealth,
+  fetchSystemSettings,
+  updateSystemSettings,
   listProjects,
   getProject,
   createProject,
   uploadMediaFiles,
   indexDirectory,
+  indexPendingMedia,
   generateMusic,
+  uploadCustomAudio,
   solveTimeline,
   updateSlice,
   splitSlice,
@@ -27,6 +31,7 @@ import { Sparkles, Activity, CheckCircle2, AlertCircle, PowerOff, Check } from '
 
 export default function App() {
   const [health, setHealth] = useState(null);
+  const [systemSettings, setSystemSettings] = useState(null);
   const [projects, setProjects] = useState([]);
   const [currentProjectId, setCurrentProjectId] = useState('');
   const [projectDetail, setProjectDetail] = useState(null);
@@ -75,8 +80,13 @@ export default function App() {
 
   const loadHealthAndProjects = async () => {
     try {
-      const [hData, pList] = await Promise.all([fetchHealth(), listProjects()]);
+      const [hData, sData, pList] = await Promise.all([
+        fetchHealth(),
+        fetchSystemSettings().catch(() => null),
+        listProjects()
+      ]);
       setHealth(hData);
+      setSystemSettings(sData);
       setProjects(pList);
       if (pList.length > 0 && !currentProjectId) {
         setCurrentProjectId(pList[0].id);
@@ -95,6 +105,15 @@ export default function App() {
       console.error('Failed to load project detail:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleToggleLocalAi = async (newValue) => {
+    try {
+      const updated = await updateSystemSettings({ only_local_ai: newValue });
+      setSystemSettings(updated);
+    } catch (err) {
+      alert('Failed to toggle Local AI mode: ' + err.message);
     }
   };
 
@@ -130,15 +149,61 @@ export default function App() {
     }
   };
 
+  const handleIndexPending = async () => {
+    if (!currentProjectId) return;
+    setIsLoading(true);
+    try {
+      await indexPendingMedia(currentProjectId);
+      await loadProjectDetail(currentProjectId);
+    } catch (err) {
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleGenerateMusic = async (params) => {
     if (!currentProjectId) return;
     setIsGeneratingMusic(true);
     try {
       await generateMusic(currentProjectId, params);
-      await loadProjectDetail(currentProjectId);
-      await handleSolveTimeline();
+      const detail = await getProject(currentProjectId);
+      setProjectDetail(detail);
+      
+      // If assets are already indexed, automatically solve timeline
+      if (detail.assets && detail.assets.length > 0) {
+        try {
+          await solveTimeline(currentProjectId);
+          await loadProjectDetail(currentProjectId);
+        } catch (solveErr) {
+          console.warn('Timeline auto-solve deferred:', solveErr);
+        }
+      }
     } catch (err) {
       alert('Music generation failed: ' + err.message);
+    } finally {
+      setIsGeneratingMusic(false);
+    }
+  };
+
+  const handleUploadCustomAudio = async (audioFile, bpm, isInstrumental) => {
+    if (!currentProjectId) return;
+    setIsGeneratingMusic(true);
+    try {
+      await uploadCustomAudio(currentProjectId, audioFile, { bpm, is_instrumental: isInstrumental });
+      const detail = await getProject(currentProjectId);
+      setProjectDetail(detail);
+
+      if (detail.assets && detail.assets.length > 0) {
+        try {
+          await solveTimeline(currentProjectId);
+          await loadProjectDetail(currentProjectId);
+        } catch (solveErr) {
+          console.warn('Timeline auto-solve deferred:', solveErr);
+        }
+      }
+    } catch (err) {
+      alert('Custom audio processing failed: ' + err.message);
     } finally {
       setIsGeneratingMusic(false);
     }
@@ -151,7 +216,7 @@ export default function App() {
       await solveTimeline(currentProjectId);
       await loadProjectDetail(currentProjectId);
     } catch (err) {
-      alert('Timeline solving failed: ' + err.message);
+      alert('Timeline solving: ' + err.message);
     } finally {
       setIsSolvingTimeline(false);
     }
@@ -252,6 +317,8 @@ export default function App() {
         onOpenModelManager={() => setIsModelModalOpen(true)}
         onShutdown={handleShutdown}
         health={health}
+        systemSettings={systemSettings}
+        onToggleLocalAi={handleToggleLocalAi}
         onRefresh={() => {
           loadHealthAndProjects();
           if (currentProjectId) loadProjectDetail(currentProjectId);
@@ -303,6 +370,8 @@ export default function App() {
               assets={projectDetail.assets}
               onUploadFiles={handleUploadFiles}
               onIndexDirectory={handleIndexDirectory}
+              onIndexPending={handleIndexPending}
+              onAssetUpdated={() => loadProjectDetail(currentProjectId)}
               isLoading={isLoading}
             />
 
@@ -310,6 +379,7 @@ export default function App() {
               project={projectDetail.project}
               audioTrack={projectDetail.audio_track}
               onGenerateMusic={handleGenerateMusic}
+              onUploadAudio={handleUploadCustomAudio}
               isGenerating={isGeneratingMusic}
               health={health}
             />
@@ -354,7 +424,10 @@ export default function App() {
 
       <ModelManagerModal
         isOpen={isModelModalOpen}
-        onClose={() => setIsModelModalOpen(false)}
+        onClose={() => {
+          setIsModelModalOpen(false);
+          loadHealthAndProjects();
+        }}
       />
     </div>
   );

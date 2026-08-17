@@ -56,3 +56,6 @@ class AudioAligner:
         tolerance_sec: float = 0.25
     ) -> Tuple[float, Optional[int]]:
         return mms_aligner._snap(time_sec, beat_grid, tolerance_sec)
+
+aligner = AudioAligner()
+

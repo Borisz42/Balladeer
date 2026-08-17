@@ -1,11 +1,26 @@
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
 from app.models.qwen_vlm import qwen_vlm
 from app.models.minimax_music import minimax_music
 from app.models.demucs_wrapper import demucs_separator
 from app.models.mms_aligner import mms_aligner
 
-def test_qwen_vlm_heuristic():
+class MockChatLlama:
+    def create_chat_completion(self, messages, max_tokens=256):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"caption": "A scenic portrait photo with vivid colors", "tags": ["portrait", "scenic"], "quality_score": 8.0}'
+                    }
+                }
+            ]
+        }
+
+def test_qwen_vlm_heuristic(monkeypatch):
+    monkeypatch.setattr(qwen_vlm, "_get_llm", lambda: MockChatLlama())
+    monkeypatch.setattr(qwen_vlm, "_loaded_model_name", "local-qwen3.5-4b")
     res = qwen_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
     assert "caption" in res
     assert "tags" in res

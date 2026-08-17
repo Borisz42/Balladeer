@@ -49,9 +49,9 @@ tools/ComfyUI/
 *.onnx
 *.h5
 *.tflite
-models/
-weights/
-checkpoints/
+/models/
+/weights/
+/checkpoints/
 hf_cache/
 .cache/
 huggingface/
@@ -86,3 +86,7 @@ web/build/
 .env
 .env.local
 .env.*.local
+
+# Logs
+logs/
+*.log

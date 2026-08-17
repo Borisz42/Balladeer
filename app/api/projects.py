@@ -1,10 +1,10 @@
 import os
 import shutil
-import logging
 import asyncio
+import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -14,21 +14,19 @@ from app.database.models import (
     ProjectModel,
     MediaAssetModel,
     AudioTrackModel,
+    TimelineSliceModel,
     ProjectDetailResponse
 )
-from app.pipeline.indexer import MediaIndexer
-from app.pipeline.music_gen import MusicGenerator
-from app.pipeline.aligner import AudioAligner
+from app.pipeline.indexer import media_indexer as indexer
+from app.pipeline.music_gen import music_gen
+from app.pipeline.aligner import aligner
 from app.pipeline.beat_solver import BeatSolver
 from app.pipeline.compositor import VideoCompositor
 from app.api.progress import progress_tracker
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+logger = logging.getLogger("balladeer.api.projects")
 
-indexer = MediaIndexer()
-music_gen = MusicGenerator()
-aligner = AudioAligner()
 beat_solver = BeatSolver()
 compositor = VideoCompositor()
 
@@ -45,21 +43,33 @@ class GenerateMusicRequest(BaseModel):
     bpm: Optional[float] = 120.0
     duration_sec: Optional[float] = 30.0
     is_instrumental: Optional[bool] = False
+    enable_local_synthesis: Optional[bool] = False
+
+class UpdateAssetRequest(BaseModel):
+    caption: Optional[str] = None
+    tags: Optional[List[str]] = None
+    quality_score: Optional[float] = None
+    is_active: Optional[bool] = None
+
+@router.get("", response_model=List[ProjectModel])
+@router.get("/", response_model=List[ProjectModel], include_in_schema=False)
+def list_all_projects():
+    return db.list_projects()
 
 @router.post("", response_model=ProjectModel)
-def create_project(req: CreateProjectRequest):
-    project_id = f"proj_{int(Path('.').stat().st_mtime * 1000) % 1000000}_{os.urandom(3).hex()}"
-    proj = ProjectModel(
+@router.post("/", response_model=ProjectModel, include_in_schema=False)
+def create_new_project(req: CreateProjectRequest):
+    import uuid
+    project_id = f"proj_{uuid.uuid4().hex[:12]}"
+    project = ProjectModel(
         id=project_id,
         title=req.title,
         narrative_text=req.narrative_text,
+        status="created",
         config_override=req.config_override
     )
-    return db.create_project(proj)
-
-@router.get("", response_model=List[ProjectModel])
-def list_projects():
-    return db.list_projects()
+    db.create_project(project)
+    return project
 
 @router.get("/{project_id}", response_model=ProjectDetailResponse)
 def get_project_detail(project_id: str):
@@ -71,9 +81,11 @@ def get_project_detail(project_id: str):
     audio = db.get_audio_track(project_id)
     slices = db.get_timeline_slices(project_id)
 
+    video_url = None
     settings = get_settings()
-    video_path = settings.output_dir / project_id / "montage.mp4"
-    video_url = f"/api/projects/{project_id}/video" if video_path.exists() else None
+    out_video = settings.output_dir / project_id / "montage.mp4"
+    if out_video.exists():
+        video_url = f"/api/projects/{project_id}/video"
 
     return ProjectDetailResponse(
         project=proj,
@@ -93,6 +105,7 @@ def delete_project(project_id: str):
 
 @router.post("/{project_id}/upload", response_model=List[MediaAssetModel])
 async def upload_media(project_id: str, files: List[UploadFile] = File(...)):
+    """Step 1: Rapidly upload and stage media files with thumbnails and basic EXIF/duration."""
     proj = db.get_project(project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -101,28 +114,30 @@ async def upload_media(project_id: str, files: List[UploadFile] = File(...)):
     project_upload_dir = settings.uploads_dir / project_id
     project_upload_dir.mkdir(parents=True, exist_ok=True)
 
-    added_assets = []
-    total = len(files)
-    for idx, file in enumerate(files):
+    saved_paths = []
+    for file in files:
         file_path = project_upload_dir / file.filename
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        saved_paths.append(file_path)
 
-        asset = indexer.index_media_file(project_id, file_path)
-        db.add_media_asset(asset)
-        added_assets.append(asset)
+    staged_assets = indexer.stage_media_files(
+        project_id=project_id,
+        file_paths=saved_paths
+    )
 
-        await progress_tracker.emit(
-            project_id=project_id,
-            phase="indexing",
-            progress=((idx + 1) / total) * 100,
-            message=f"Indexed asset {idx + 1}/{total}: {file.filename}"
-        )
+    await progress_tracker.emit(
+        project_id=project_id,
+        phase="staged",
+        progress=100.0,
+        message=f"Staged {len(staged_assets)} files. Click 'Index Media' to run AI vision analysis."
+    )
 
-    return added_assets
+    return staged_assets
 
 @router.post("/{project_id}/index-directory", response_model=List[MediaAssetModel])
 async def index_directory(project_id: str, req: IndexDirRequest):
+    """Step 1: Rapidly stage files from a local directory."""
     proj = db.get_project(project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -131,24 +146,124 @@ async def index_directory(project_id: str, req: IndexDirRequest):
     if not dir_path.exists() or not dir_path.is_dir():
         raise HTTPException(status_code=400, detail="Invalid directory path")
 
-    added_assets = []
     supported_exts = {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".mkv", ".avi"}
     files = [f for f in dir_path.glob("*") if f.suffix.lower() in supported_exts]
-    total = len(files)
 
-    for idx, f in enumerate(files):
-        asset = indexer.index_media_file(project_id, f)
-        db.add_media_asset(asset)
-        added_assets.append(asset)
+    staged_assets = indexer.stage_media_files(
+        project_id=project_id,
+        file_paths=files
+    )
 
+    await progress_tracker.emit(
+        project_id=project_id,
+        phase="staged",
+        progress=100.0,
+        message=f"Staged {len(staged_assets)} files from directory. Click 'Index Media' to run AI vision analysis."
+    )
+
+    return staged_assets
+
+@router.post("/{project_id}/index-pending", response_model=List[MediaAssetModel])
+async def index_pending_media(project_id: str):
+    """Step 2: Executes parallel batch AI vision indexing on all unindexed media files."""
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    async def on_progress(msg: str, pct: float):
         await progress_tracker.emit(
             project_id=project_id,
             phase="indexing",
-            progress=((idx + 1) / max(total, 1)) * 100,
-            message=f"Indexed asset {idx + 1}/{total}: {f.name}"
+            progress=pct,
+            message=msg
         )
 
-    return added_assets
+    indexed = await indexer.index_pending_assets(
+        project_id=project_id,
+        progress_callback=on_progress
+    )
+
+    await progress_tracker.emit(
+        project_id=project_id,
+        phase="ready",
+        progress=100.0,
+        message=f"Completed AI vision indexing for {len(indexed)} files."
+    )
+
+    return indexed
+
+@router.get("/{project_id}/assets/{asset_id}/thumbnail")
+def get_asset_thumbnail(project_id: str, asset_id: str):
+    """Returns the cached thumbnail image for an asset."""
+    thumb_path = indexer.get_thumbnail_path(asset_id)
+    if thumb_path.exists():
+        return FileResponse(thumb_path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+
+    asset = db.get_asset(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    p = Path(asset.file_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File on disk not found")
+
+    # Generate and serve
+    indexer.generate_thumbnail(p, asset_id, asset.media_type)
+    if thumb_path.exists():
+        return FileResponse(thumb_path, media_type="image/jpeg")
+
+    # Fallback to direct file if image
+    if asset.media_type == "image":
+        return FileResponse(p)
+
+    raise HTTPException(status_code=404, detail="Thumbnail not available")
+
+@router.get("/{project_id}/assets/{asset_id}/file")
+def get_asset_raw_file(project_id: str, asset_id: str):
+    """Serves the raw full-resolution photo or video file."""
+    asset = db.get_asset(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    p = Path(asset.file_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File on disk not found")
+
+    media_type = "video/mp4" if asset.media_type == "video" else "image/jpeg"
+    return FileResponse(p, media_type=media_type)
+
+@router.put("/{project_id}/assets/{asset_id}", response_model=MediaAssetModel)
+def update_asset(project_id: str, asset_id: str, req: UpdateAssetRequest):
+    """Allows user to inspect and edit what the AI thinks about any media asset."""
+    asset = db.get_asset(asset_id)
+    if not asset or asset.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    updates = {}
+    if req.caption is not None:
+        updates["caption"] = req.caption.strip()
+        # Re-compute CLIP embedding for user's updated caption
+        if req.caption.strip():
+            updates["embedding"] = indexer.generate_clip_embedding(req.caption.strip())
+        updates["indexed_by_model"] = "user-edited"
+
+    if req.tags is not None:
+        updates["tags"] = req.tags
+    if req.quality_score is not None:
+        updates["quality_score"] = float(max(1.0, min(10.0, req.quality_score)))
+    if req.is_active is not None:
+        updates["is_active"] = bool(req.is_active)
+
+    updated = db.update_media_asset(asset_id, updates)
+    return updated
+
+@router.post("/{project_id}/assets/{asset_id}/reindex", response_model=MediaAssetModel)
+async def reindex_asset(project_id: str, asset_id: str):
+    """Re-indexes an individual asset with the AI model waterfall."""
+    updated = await indexer.reindex_single_asset(project_id, asset_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Asset not found or failed to reindex")
+    return updated
 
 @router.post("/{project_id}/generate-music", response_model=AudioTrackModel)
 async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
@@ -158,9 +273,13 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
 
     db.update_project_status(project_id, "generating_music")
     try:
-        await progress_tracker.emit(project_id, "music_gen", 15.0, "Structuring narrative acts and lyrics...")
+        await progress_tracker.emit(project_id, "music_gen", 15.0, "Structuring narrative acts and optimizing Google Flow Music prompt...")
         acts = music_gen.partition_narrative_to_acts(proj.narrative_text)
-        lyrics, gen_prompt = music_gen.generate_rhyming_lyrics(acts, is_instrumental=req.is_instrumental)
+        lyrics, gen_prompt = await music_gen.generate_rhyming_lyrics_async(
+            acts=acts,
+            narrative_text=proj.narrative_text,
+            is_instrumental=bool(req.is_instrumental)
+        )
         prompt = req.prompt or gen_prompt
 
         bpm = req.bpm or 120.0
@@ -183,6 +302,7 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
             bpm=bpm,
             target_duration_sec=duration,
             is_instrumental=req.is_instrumental,
+            enable_local_synthesis=bool(req.enable_local_synthesis),
             progress_callback=on_synth_progress
         )
 
@@ -212,21 +332,105 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
             accompaniment_stem_path=str(stems["accompaniment"].resolve()),
             prompt=prompt,
             lyrics=lyrics,
-            is_instrumental=bool(req.is_instrumental),
+            is_instrumental=req.is_instrumental or False,
             bpm=track_bpm,
             beat_grid=beat_grid,
             downbeats=downbeats,
             aligned_lyrics=aligned_words
         )
-        saved_track = db.save_audio_track(track)
+        db.save_audio_track(track)
         db.update_project_status(project_id, "ready")
-        await progress_tracker.emit(project_id, "ready", 100.0, "Audio track and alignment ready!")
-        return saved_track
+        await progress_tracker.emit(project_id, "ready", 100.0, "Audio generation & beat alignment complete!")
+
+        return track
     except Exception as e:
         logger.exception("Music generation failed")
         db.update_project_status(project_id, "error", str(e))
-        await progress_tracker.emit(project_id, "error", 0.0, f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{project_id}/upload-audio", response_model=AudioTrackModel)
+async def upload_custom_audio(
+    project_id: str,
+    file: UploadFile = File(...),
+    bpm: Optional[float] = Form(None),
+    is_instrumental: Optional[bool] = Form(False)
+):
+    """Uploads external audio track (e.g. from Google Flow Music / Lyria) and processes stems & alignment."""
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    settings = get_settings()
+    proj_out_dir = settings.output_dir / project_id
+    proj_out_dir.mkdir(parents=True, exist_ok=True)
+
+    master_path = proj_out_dir / f"master{Path(file.filename).suffix}"
+    with open(master_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    db.update_project_status(project_id, "aligning")
+    try:
+        await progress_tracker.emit(project_id, "aligning", 30.0, "Demixing stems with Demucs from uploaded audio...")
+        stems = aligner.separate_stems_demucs(master_path=master_path, output_dir=proj_out_dir)
+
+        await progress_tracker.emit(project_id, "aligning", 60.0, "Detecting beats and tempo from custom audio...")
+        detected_bpm, beat_grid, downbeats = aligner.extract_beat_grid(master_path)
+        final_bpm = bpm if bpm and bpm > 0 else detected_bpm
+
+        existing_track = db.get_audio_track(project_id)
+        lyrics = existing_track.lyrics if existing_track else ""
+        prompt = existing_track.prompt if existing_track else "Custom uploaded audio"
+
+        await progress_tracker.emit(project_id, "aligning", 85.0, "Running phonetic MMS_FA forced alignment...")
+        aligned_words = []
+        if lyrics and not is_instrumental:
+            aligned_words = aligner.align_lyrics_mms_fa(
+                vocal_path=stems["vocals"],
+                lyrics_text=lyrics,
+                beat_grid=beat_grid
+            )
+
+        track_id = f"trk_{project_id}"
+        track = AudioTrackModel(
+            id=track_id,
+            project_id=project_id,
+            master_path=str(master_path.resolve()),
+            vocal_stem_path=str(stems["vocals"].resolve()),
+            accompaniment_stem_path=str(stems["accompaniment"].resolve()),
+            prompt=prompt,
+            lyrics=lyrics,
+            is_instrumental=is_instrumental or False,
+            bpm=final_bpm,
+            beat_grid=beat_grid,
+            downbeats=downbeats,
+            aligned_lyrics=aligned_words
+        )
+        db.save_audio_track(track)
+        db.update_project_status(project_id, "ready")
+        await progress_tracker.emit(project_id, "ready", 100.0, "Custom audio stems and beat alignment ready!")
+        return track
+    except Exception as e:
+        logger.exception("Upload audio processing failed")
+        db.update_project_status(project_id, "error", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{project_id}/audio/{stem_type}")
+def stream_audio_stem(project_id: str, stem_type: str):
+    track = db.get_audio_track(project_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Audio track not found")
+
+    path_map = {
+        "master": track.master_path,
+        "vocals": track.vocal_stem_path,
+        "accompaniment": track.accompaniment_stem_path
+    }
+
+    target = path_map.get(stem_type)
+    if not target or not Path(target).exists():
+        raise HTTPException(status_code=404, detail=f"Audio stem '{stem_type}' not found on disk")
+
+    return FileResponse(target, media_type="audio/wav")
 
 @router.post("/{project_id}/solve-timeline")
 async def solve_timeline(project_id: str):
@@ -236,11 +440,11 @@ async def solve_timeline(project_id: str):
 
     audio = db.get_audio_track(project_id)
     if not audio:
-        raise HTTPException(status_code=400, detail="Audio track must be generated first")
+        raise HTTPException(status_code=400, detail="Audio track must be generated or uploaded first")
 
     assets = db.get_project_assets(project_id)
     if not assets:
-        raise HTTPException(status_code=400, detail="No media assets found")
+        raise HTTPException(status_code=400, detail="No media assets found. Please upload or index photos and videos first.")
 
     db.update_project_status(project_id, "solving")
     try:
@@ -251,69 +455,65 @@ async def solve_timeline(project_id: str):
             assets=assets,
             custom_config=proj.config_override
         )
-        db.save_timeline_slices(project_id, slices)
+        saved_slices = db.save_timeline_slices(project_id, slices) or []
         db.update_project_status(project_id, "ready")
-        await progress_tracker.emit(project_id, "ready", 100.0, f"Generated {len(slices)} beat-aligned video cuts.")
-        return db.get_timeline_slices(project_id)
+        await progress_tracker.emit(project_id, "ready", 100.0, f"Solved timeline with {len(saved_slices)} clips!")
+        return {"status": "solved", "slices_count": len(saved_slices), "slices": saved_slices}
     except Exception as e:
-        logger.exception("Timeline solve failed")
+        logger.exception("Beat solver failed")
         db.update_project_status(project_id, "error", str(e))
-        await progress_tracker.emit(project_id, "error", 0.0, f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/{project_id}/render")
-def render_project_video(project_id: str, background_tasks: BackgroundTasks):
+@router.post("/{project_id}/render-video")
+async def render_montage_video(project_id: str):
     proj = db.get_project(project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
 
     audio = db.get_audio_track(project_id)
     slices = db.get_timeline_slices(project_id)
-    if not audio or not slices:
-        raise HTTPException(status_code=400, detail="Audio track and timeline slices required")
+    assets = db.get_project_assets(project_id)
+
+    if not audio or not slices or not assets:
+        raise HTTPException(status_code=400, detail="Audio, slices, and assets must all be present before rendering")
 
     db.update_project_status(project_id, "rendering")
+    try:
+        settings = get_settings()
+        out_dir = settings.output_dir / project_id
+        out_video = out_dir / "montage.mp4"
 
-    def run_render():
-        try:
-            aspect = "16:9"
-            if proj.config_override and "video" in proj.config_override:
-                aspect = proj.config_override["video"].get("aspect_ratio", "16:9")
+        loop = asyncio.get_running_loop()
+        def on_render_progress(msg: str, pct: float):
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    progress_tracker.emit(project_id, "rendering", pct, msg),
+                    loop
+                )
+            except Exception:
+                pass
 
-            compositor.assemble_final_video(
-                project_id=project_id,
-                slices=slices,
-                audio_track=audio,
-                aspect_ratio=aspect
-            )
-            db.update_project_status(project_id, "completed")
-        except Exception as e:
-            logger.exception("Render failed")
-            db.update_project_status(project_id, "error", str(e))
+        final_path = compositor.render_timeline(
+            project_id=project_id,
+            slices=slices,
+            audio_track=audio,
+            output_path=out_video,
+            custom_config=proj.config_override,
+            progress_callback=on_render_progress
+        )
 
-    background_tasks.add_task(run_render)
-    return {"status": "rendering", "project_id": project_id}
+        db.update_project_status(project_id, "completed")
+        await progress_tracker.emit(project_id, "ready", 100.0, "Video render complete!")
+        return {"status": "completed", "video_url": f"/api/projects/{project_id}/video"}
+    except Exception as e:
+        logger.exception("Video render failed")
+        db.update_project_status(project_id, "error", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{project_id}/video")
-def get_rendered_video(project_id: str):
+def stream_rendered_video(project_id: str):
     settings = get_settings()
-    video_path = settings.output_dir / project_id / "montage.mp4"
-    if not video_path.exists():
+    out_video = settings.output_dir / project_id / "montage.mp4"
+    if not out_video.exists():
         raise HTTPException(status_code=404, detail="Rendered video not found")
-    return FileResponse(str(video_path), media_type="video/mp4", filename=f"{project_id}_montage.mp4")
-
-@router.get("/{project_id}/audio/{stem_type}")
-def get_audio_file(project_id: str, stem_type: str):
-    audio = db.get_audio_track(project_id)
-    if not audio:
-        raise HTTPException(status_code=404, detail="Audio track not found")
-
-    path_map = {
-        "master": audio.master_path,
-        "vocals": audio.vocal_stem_path,
-        "accompaniment": audio.accompaniment_stem_path
-    }
-    p = path_map.get(stem_type)
-    if not p or not Path(p).exists():
-        raise HTTPException(status_code=404, detail="Audio stem file not found")
-    return FileResponse(p, media_type="audio/wav")
+    return FileResponse(out_video, media_type="video/mp4")

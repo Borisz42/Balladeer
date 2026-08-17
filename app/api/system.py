@@ -3,12 +3,70 @@ import sys
 import signal
 import asyncio
 import logging
-from fastapi import APIRouter, BackgroundTasks
+from typing import Optional, Dict, Any
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel
+
 from app.database.database import db
 from app.core.memory_manager import memory_manager
+from app.core.config import get_settings, reload_settings, save_dotenv_var
+from app.models.model_router import model_router
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/system", tags=["system"])
+
+class UpdateSettingsRequest(BaseModel):
+    gemini_api_key: Optional[str] = None
+    only_local_ai: Optional[bool] = None
+    local_model: Optional[str] = None
+
+@router.get("/settings")
+def get_system_settings() -> Dict[str, Any]:
+    """
+    Returns current active system configuration, API key status, local model choice, and real-time model quotas.
+    """
+    settings = get_settings()
+    has_key = bool(settings.google_ai.api_key.strip())
+    masked_key = ""
+    if has_key:
+        key_str = settings.google_ai.api_key.strip()
+        masked_key = key_str[:4] + "..." + key_str[-4:] if len(key_str) > 8 else "****"
+
+    return {
+        "has_gemini_api_key": has_key,
+        "masked_gemini_api_key": masked_key,
+        "only_local_ai": settings.google_ai.only_local_ai,
+        "local_model": settings.indexing.local_model,
+        "batch_size": settings.google_ai.batch_size,
+        "quotas": model_router.get_all_quotas_status()
+    }
+
+@router.post("/settings")
+def update_system_settings(req: UpdateSettingsRequest) -> Dict[str, Any]:
+    """
+    Updates the Google AI Studio API key, local AI mode toggle, and/or local model choice, persisting to untracked .env file.
+    """
+    if req.gemini_api_key is not None:
+        save_dotenv_var("GEMINI_API_KEY", req.gemini_api_key.strip())
+        logger.info("[SYSTEM] Updated GEMINI_API_KEY in .env")
+
+    if req.only_local_ai is not None:
+        save_dotenv_var("BALLADEER_ONLY_LOCAL_AI", "true" if req.only_local_ai else "false")
+        logger.info(f"[SYSTEM] Updated BALLADEER_ONLY_LOCAL_AI={req.only_local_ai} in .env")
+
+    if req.local_model is not None:
+        save_dotenv_var("BALLADEER_LOCAL_MODEL", req.local_model.strip())
+        logger.info(f"[SYSTEM] Updated BALLADEER_LOCAL_MODEL={req.local_model} in .env")
+        try:
+            from app.models.qwen_vlm import qwen_vlm
+            qwen_vlm.reload_model()
+        except Exception:
+            pass
+
+    reload_settings()
+    return get_system_settings()
+
+
 
 def perform_clean_shutdown():
     logger.info("================================================================")
@@ -33,7 +91,8 @@ def perform_clean_shutdown():
     # 3. Terminate background ComfyUI worker if running
     try:
         from app.models.comfy_music_worker import comfy_music_worker
-        comfy_music_worker.shutdown()
+        if hasattr(comfy_music_worker, "shutdown"):
+            comfy_music_worker.shutdown()
     except Exception as e:
         logger.debug(f"ComfyUI cleanup notice: {e}")
 
@@ -44,7 +103,6 @@ async def async_shutdown_process():
     perform_clean_shutdown()
     # Trigger SIGINT/SIGTERM to uvicorn
     if sys.platform == "win32":
-        # Windows graceful exit
         os.kill(os.getpid(), signal.SIGINT)
     else:
         os.kill(os.getpid(), signal.SIGTERM)
@@ -58,5 +116,5 @@ async def shutdown_server(background_tasks: BackgroundTasks):
     background_tasks.add_task(async_shutdown_process)
     return {
         "status": "shutting_down",
-        "message": "Balladeer server is shutting down cleanly. You may now close this browser tab."
+        "message": "Balladeer server is shutting down cleanly and releasing all GPU resources."
     }

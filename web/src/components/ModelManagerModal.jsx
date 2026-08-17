@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { X, Cpu, HardDrive, Download, CheckCircle2, Cloud, Sparkles, RefreshCw, Key, AlertCircle } from 'lucide-react';
-import { fetchModelsStatus, triggerModelDownload } from '../api';
+import { X, Cpu, HardDrive, Download, CheckCircle2, Cloud, Sparkles, RefreshCw, Key, AlertCircle, Shield, Zap, ToggleLeft, ToggleRight } from 'lucide-react';
+import { fetchModelsStatus, triggerModelDownload, fetchSystemSettings, updateSystemSettings } from '../api';
 
 export default function ModelManagerModal({ isOpen, onClose }) {
   const [data, setData] = useState(null);
+  const [settingsData, setSettingsData] = useState(null);
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [onlyLocalAi, setOnlyLocalAi] = useState(false);
   const [hfToken, setHfToken] = useState('');
   const [downloadingModel, setDownloadingModel] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingKey, setIsSavingKey] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -19,12 +23,48 @@ export default function ModelManagerModal({ isOpen, onClose }) {
   const loadStatus = async () => {
     setIsLoading(true);
     try {
-      const res = await fetchModelsStatus();
-      setData(res);
+      const [modelRes, settingsRes] = await Promise.all([
+        fetchModelsStatus(),
+        fetchSystemSettings().catch(() => null)
+      ]);
+      setData(modelRes);
+      if (settingsRes) {
+        setSettingsData(settingsRes);
+        setOnlyLocalAi(settingsRes.only_local_ai);
+      }
     } catch (err) {
-      console.error('Failed to load model status:', err);
+      console.error('Failed to load model/settings status:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveGeminiKey = async () => {
+    if (!geminiApiKey.trim()) return;
+    setIsSavingKey(true);
+    try {
+      const updated = await updateSystemSettings({ gemini_api_key: geminiApiKey.trim() });
+      setSettingsData(updated);
+      setGeminiApiKey('');
+      setStatusMessage('Google AI Studio API key securely saved to local .env file.');
+      setTimeout(() => setStatusMessage(null), 4000);
+    } catch (err) {
+      setErrorMessage(`Failed to save API key: ${err.message}`);
+    } finally {
+      setIsSavingKey(false);
+    }
+  };
+
+  const handleToggleLocalMode = async () => {
+    const newVal = !onlyLocalAi;
+    setOnlyLocalAi(newVal);
+    try {
+      const updated = await updateSystemSettings({ only_local_ai: newVal });
+      setSettingsData(updated);
+      setStatusMessage(newVal ? 'Master Switch: Local AI Only Mode Active.' : 'Master Switch: Cloud Free-Tier Waterfalls Active.');
+      setTimeout(() => setStatusMessage(null), 3000);
+    } catch (err) {
+      setErrorMessage(`Failed to toggle local mode: ${err.message}`);
     }
   };
 
@@ -34,7 +74,6 @@ export default function ModelManagerModal({ isOpen, onClose }) {
     setErrorMessage(null);
     try {
       await triggerModelDownload(modelName, hfToken);
-      // Poll a few times
       let attempts = 0;
       const interval = setInterval(async () => {
         attempts += 1;
@@ -56,10 +95,11 @@ export default function ModelManagerModal({ isOpen, onClose }) {
 
   const models = data?.models ? Object.values(data.models) : [];
   const hardware = data?.hardware || {};
+  const quotas = settingsData?.quotas || {};
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="glass-panel w-full max-w-3xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 relative max-h-[90vh] overflow-y-auto">
+      <div className="glass-panel w-full max-w-4xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 relative max-h-[92vh] overflow-y-auto">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
@@ -73,9 +113,9 @@ export default function ModelManagerModal({ isOpen, onClose }) {
               <Cpu className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">AI Models & Hardware Staging Manager</h2>
+              <h2 className="text-lg font-bold text-white">AI Engine & Model Priority Manager</h2>
               <p className="text-xs text-slate-400">
-                RTX 3070 8GB VRAM Budget & Local Weight Management
+                Hybrid Cloud Free-Tier Dispatcher, Local RTX 3070 VLM, & Quota Tracking
               </p>
             </div>
           </div>
@@ -115,6 +155,170 @@ export default function ModelManagerModal({ isOpen, onClose }) {
           </div>
         )}
 
+        {/* Master Switch: Only Use Local AI */}
+        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 mb-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${onlyLocalAi ? 'bg-amber-500/20 text-amber-400' : 'bg-teal-500/20 text-teal-400'}`}>
+              <Shield className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white">Master Local Mode Switch</h3>
+                <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded font-bold ${
+                  onlyLocalAi ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-teal-500/20 text-teal-300 border border-teal-500/40'
+                }`}>
+                  {onlyLocalAi ? '100% Offline Local AI' : 'Hybrid Cloud-Local Active'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                {onlyLocalAi
+                  ? 'All vision indexing, scoring, and text structuring run exclusively on your local GPU (Qwen3.5-4B).'
+                  : 'Utilizes Google AI Studio free tier quotas (Gemini Flash Lite & Gemma) with automatic local fallback.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleToggleLocalMode}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition border ${
+              onlyLocalAi
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+            }`}
+          >
+            {onlyLocalAi ? <ToggleRight className="w-4 h-4 text-amber-400" /> : <ToggleLeft className="w-4 h-4 text-slate-400" />}
+            {onlyLocalAi ? 'Local Only Active' : 'Enable Local Only'}
+          </button>
+        </div>
+
+        {/* Local Model Selector */}
+        <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                Local AI Model Selector (Qwen 3.5 GGUF + MMProj)
+              </h3>
+            </div>
+            <span className="text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded">
+              Active: {settingsData?.local_model || 'qwen3.5-4b'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 mb-3">
+            Select the local vision-language model used when offline or in Local-Only mode. Both run locally on your GPU.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={async () => {
+                const updated = await updateSystemSettings({ local_model: 'qwen3.5-4b' });
+                setSettingsData(updated);
+                setStatusMessage('Active Local Model set to Qwen 3.5 4B.');
+                setTimeout(() => setStatusMessage(null), 3000);
+              }}
+              className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                (settingsData?.local_model || 'qwen3.5-4b') === 'qwen3.5-4b'
+                  ? 'bg-amber-500/10 border-amber-500/50 text-white'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-xs">Qwen 3.5 4B (Q4_K_M)</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 font-mono">~2.8 GB VRAM</span>
+              </div>
+              <p className="text-[11px] opacity-80">
+                Lightweight, fast multimodal captioning & quality scoring. Recommended for 8GB GPUs.
+              </p>
+            </button>
+
+            <button
+              onClick={async () => {
+                const updated = await updateSystemSettings({ local_model: 'qwen3.5-9b' });
+                setSettingsData(updated);
+                setStatusMessage('Active Local Model set to Qwen 3.5 9B.');
+                setTimeout(() => setStatusMessage(null), 3000);
+              }}
+              className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                settingsData?.local_model === 'qwen3.5-9b'
+                  ? 'bg-amber-500/10 border-amber-500/50 text-white'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-xs">Qwen 3.5 9B (Q4_K_M)</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 font-mono">~5.8 GB VRAM</span>
+              </div>
+              <p className="text-[11px] opacity-80">
+                High-capacity multimodal reasoning & nuanced lyrical analysis. Fits RTX 3070 8GB VRAM.
+              </p>
+            </button>
+          </div>
+        </div>
+
+        {/* Google AI Studio API Key Configuration (Saved to .env) */}
+        <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Key className="w-4 h-4 text-teal-400" />
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                Google AI Studio API Key (Free Tier Waterfalls)
+              </h3>
+            </div>
+            {settingsData?.has_gemini_api_key && (
+              <span className="text-[10px] font-mono bg-teal-500/10 text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded">
+                Active Key: {settingsData.masked_gemini_api_key}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mb-3">
+            Enter your free Google AI Studio API key. Saved into your local untracked <code className="text-teal-300">.env</code> file (never pushed to Git).
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={geminiApiKey}
+              onChange={(e) => setGeminiApiKey(e.target.value)}
+              placeholder={settingsData?.has_gemini_api_key ? "Enter new key to replace..." : "AIzaSy..."}
+              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 font-mono"
+            />
+            <button
+              onClick={handleSaveGeminiKey}
+              disabled={isSavingKey || !geminiApiKey.trim()}
+              className="bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs transition"
+            >
+              {isSavingKey ? 'Saving...' : 'Save to .env'}
+            </button>
+          </div>
+        </div>
+
+
+        {/* Quota Pools Real-Time Dashboard */}
+        {Object.keys(quotas).length > 0 && (
+          <div className="mb-5">
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5 text-cyan-400" />
+              Model Priority Quota Tracker & Headroom
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+              {Object.values(quotas).map((q) => (
+                <div key={q.name} className="bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 font-mono">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-bold text-white text-[11px] truncate">{q.name}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                      q.is_local ? 'bg-purple-500/20 text-purple-300' : 'bg-cyan-500/20 text-cyan-300'
+                    }`}>
+                      {q.is_local ? 'Local' : 'Cloud'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 space-y-0.5">
+                    <div>RPM: <span className="text-teal-300 font-bold">{q.current_rpm}</span> / {q.rpm_limit}</div>
+                    <div>Daily Calls: <span className="text-teal-300 font-bold">{q.daily_count}</span> / {q.rpd_limit}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Hardware Status Banner */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5 text-xs font-mono">
           <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
@@ -137,7 +341,7 @@ export default function ModelManagerModal({ isOpen, onClose }) {
             <Key className="w-4 h-4 text-amber-400 shrink-0" />
             <div>
               <p className="text-xs font-semibold text-white">Hugging Face API Key (Optional)</p>
-              <p className="text-[11px] text-slate-400">Used for free cloud inference or downloading gated model weights</p>
+              <p className="text-[11px] text-slate-400">Used for downloading gated weights</p>
             </div>
           </div>
           <input

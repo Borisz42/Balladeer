@@ -5,6 +5,27 @@ export async function fetchHealth() {
   return res.json();
 }
 
+export async function fetchSystemSettings() {
+  const res = await fetch(`${API_BASE}/system/settings`);
+  if (!res.ok) throw new Error('Failed to fetch system settings');
+  return res.json();
+}
+
+export async function updateSystemSettings({ gemini_api_key, only_local_ai, local_model } = {}) {
+  const res = await fetch(`${API_BASE}/system/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      gemini_api_key: gemini_api_key !== undefined ? gemini_api_key : null,
+      only_local_ai: only_local_ai !== undefined ? only_local_ai : null,
+      local_model: local_model !== undefined ? local_model : null
+    })
+  });
+  if (!res.ok) throw new Error('Failed to update system settings');
+  return res.json();
+}
+
+
 export async function listProjects() {
   const res = await fetch(`${API_BASE}/projects`);
   return res.json();
@@ -58,7 +79,33 @@ export async function indexDirectory(projectId, directoryPath) {
   return res.json();
 }
 
-export async function generateMusic(projectId, { prompt, bpm, durationSec, is_instrumental } = {}) {
+export async function indexPendingMedia(projectId) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/index-pending`, {
+    method: 'POST'
+  });
+  if (!res.ok) throw new Error('Failed to index pending media');
+  return res.json();
+}
+
+export async function updateAsset(projectId, assetId, updates) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/assets/${assetId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates)
+  });
+  if (!res.ok) throw new Error('Failed to update asset');
+  return res.json();
+}
+
+export async function reindexAsset(projectId, assetId) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/assets/${assetId}/reindex`, {
+    method: 'POST'
+  });
+  if (!res.ok) throw new Error('Failed to reindex asset');
+  return res.json();
+}
+
+export async function generateMusic(projectId, { prompt, bpm, durationSec, is_instrumental, enable_local_synthesis } = {}) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/generate-music`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -66,10 +113,25 @@ export async function generateMusic(projectId, { prompt, bpm, durationSec, is_in
       prompt: prompt || null,
       bpm: bpm || 120.0,
       duration_sec: durationSec || 30.0,
-      is_instrumental: is_instrumental || false
+      is_instrumental: is_instrumental || false,
+      enable_local_synthesis: enable_local_synthesis || false
     })
   });
   if (!res.ok) throw new Error('Failed to generate music');
+  return res.json();
+}
+
+export async function uploadCustomAudio(projectId, audioFile, { bpm, is_instrumental } = {}) {
+  const formData = new FormData();
+  formData.append('file', audioFile);
+  if (bpm) formData.append('bpm', bpm.toString());
+  if (is_instrumental !== undefined) formData.append('is_instrumental', is_instrumental.toString());
+
+  const res = await fetch(`${API_BASE}/projects/${projectId}/upload-audio`, {
+    method: 'POST',
+    body: formData
+  });
+  if (!res.ok) throw new Error('Failed to upload custom audio');
   return res.json();
 }
 
@@ -128,7 +190,7 @@ export async function swapSliceAsset(projectId, sliceId, newAssetId) {
 }
 
 export async function renderVideo(projectId) {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/render`, {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/render-video`, {
     method: 'POST'
   });
   if (!res.ok) throw new Error('Failed to trigger render');

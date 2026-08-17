@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { Music, Sliders, Play, RotateCw, Volume2, Mic, Disc3, VolumeX } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Music, Sliders, Play, RotateCw, Volume2, Mic, Disc3, Upload, Copy, Check, Sparkles, AlertTriangle } from 'lucide-react';
 
 export default function MusicStudio({
   project,
   audioTrack,
   onGenerateMusic,
+  onUploadAudio,
   isGenerating,
   health
 }) {
@@ -13,14 +14,50 @@ export default function MusicStudio({
   const [prompt, setPrompt] = useState(audioTrack?.prompt || '');
   const [activeStem, setActiveStem] = useState('master');
   const [isInstrumental, setIsInstrumental] = useState(audioTrack?.is_instrumental || false);
+  const [enableLocalSynthesis, setEnableLocalSynthesis] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [copiedLyrics, setCopiedLyrics] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+
+  const fileInputRef = useRef(null);
 
   const handleGenerate = () => {
     onGenerateMusic({
       bpm: parseFloat(bpm),
       duration_sec: parseFloat(duration),
       prompt: prompt.trim() || undefined,
-      is_instrumental: isInstrumental
+      is_instrumental: isInstrumental,
+      enable_local_synthesis: enableLocalSynthesis
     });
+  };
+
+  const handleCopyPrompt = () => {
+    const textToCopy = prompt || audioTrack?.prompt || '';
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy);
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 2500);
+    }
+  };
+
+  const handleCopyLyrics = () => {
+    if (audioTrack?.lyrics) {
+      navigator.clipboard.writeText(audioTrack.lyrics);
+      setCopiedLyrics(true);
+      setTimeout(() => setCopiedLyrics(false), 2500);
+    }
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !onUploadAudio) return;
+    setIsUploadingAudio(true);
+    try {
+      await onUploadAudio(file, parseFloat(bpm), isInstrumental);
+    } finally {
+      setIsUploadingAudio(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -31,15 +68,15 @@ export default function MusicStudio({
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <Disc3 className="w-4 h-4 text-teal-400" />
-              Music & Lyric Studio (MiniMax 3 CMF + Demucs + MMS_FA)
+              Music & Lyric Studio (Google Flow Music Optimizer + Demucs + MMS_FA)
             </h2>
-            <span className="flex items-center gap-1.5 text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              MiniMax Music 3 CMF Native Engine Active (RTX GPU + Multi-Core)
+            <span className="flex items-center gap-1.5 text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full font-semibold">
+              <Sparkles className="w-3 h-3 text-cyan-400" />
+              Google Flow Music (MusicFX / Lyria) Prompt Engine
             </span>
           </div>
           <p className="text-xs text-slate-400">
-            Rhyming event lyrics, 2-stem vocal demixing, and CTC trellis forced alignment
+            AI-optimized prompt generator, 5-act rhyming lyrics, Demucs 2-stem separation, and Trellis beat tracking
           </p>
         </div>
 
@@ -68,24 +105,52 @@ export default function MusicStudio({
             <span>Instrumental</span>
           </label>
 
+          <label className="flex items-center gap-2 text-xs text-amber-300 cursor-pointer bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-lg" title="MiniMax Music 3 local inference is resource-intensive and slow">
+            <input
+              type="checkbox"
+              checked={enableLocalSynthesis}
+              onChange={(e) => setEnableLocalSynthesis(e.target.checked)}
+              className="rounded border-amber-700 text-amber-500 w-3.5 h-3.5"
+            />
+            <span className="font-semibold text-[11px]">Local MiniMax 3 Engine (Slow)</span>
+          </label>
+
           <button
             onClick={handleGenerate}
-            disabled={isGenerating}
+            disabled={isGenerating || isUploadingAudio}
             className="flex items-center gap-1.5 bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs transition shadow-md shadow-teal-500/20"
           >
             <RotateCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-            {isGenerating ? 'Synthesizing & Aligning...' : 'Generate Beat & Lyrics'}
+            {isGenerating ? 'Generating...' : 'Generate Prompts & Lyrics'}
           </button>
         </div>
       </div>
 
-      {/* Main Grid: Audio Stem Preview + Lyrics Display */}
+      {/* Main Grid: Audio Stem Preview + Google Flow Music & Lyrics */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-5 space-y-4 bg-slate-950/60 rounded-xl p-4 border border-slate-800/80">
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-              Audio Stem Selector
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                Audio Stems & Track Player
+              </label>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingAudio}
+                className="flex items-center gap-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 px-2 py-0.5 rounded font-semibold transition"
+              >
+                <Upload className="w-3 h-3" />
+                {isUploadingAudio ? 'Processing Stem Audio...' : 'Upload Google Flow Audio'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*,.wav,.mp3,.flac,.m4a"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
+
             <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => setActiveStem('master')}
@@ -150,16 +215,28 @@ export default function MusicStudio({
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-300">
-              Musical Style Prompt
-            </label>
-            <input
-              type="text"
-              value={prompt}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-cyan-400" />
+                Google Flow Music Prompt
+              </label>
+              {(prompt || audioTrack?.prompt) && (
+                <button
+                  onClick={handleCopyPrompt}
+                  className="flex items-center gap-1 text-[10px] text-teal-400 hover:text-teal-300 font-semibold"
+                >
+                  {copiedPrompt ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  {copiedPrompt ? 'Copied!' : 'Copy Prompt'}
+                </button>
+              )}
+            </div>
+            <textarea
+              rows={3}
+              value={prompt || audioTrack?.prompt || ''}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. Uplifting acoustic indie pop with rhythmic guitar..."
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 font-mono"
+              placeholder="e.g. Uplifting acoustic indie pop with rhythmic guitar, warm vocals, 120 BPM..."
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 font-mono leading-relaxed"
             />
           </div>
         </div>
@@ -169,14 +246,25 @@ export default function MusicStudio({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                {audioTrack?.is_instrumental ? 'Documentary Event Cards' : 'Event-Structured Rhyming Lyrics'}
+                {audioTrack?.is_instrumental ? 'Documentary Event Cards' : '5-Act Structured Rhyming Lyrics'}
               </span>
-              <span className="text-[11px] font-mono text-teal-400">
-                {audioTrack?.aligned_lyrics?.length || 0} phoneme-aligned tokens
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-mono text-teal-400">
+                  {audioTrack?.aligned_lyrics?.length || 0} phoneme-aligned tokens
+                </span>
+                {audioTrack?.lyrics && (
+                  <button
+                    onClick={handleCopyLyrics}
+                    className="flex items-center gap-1 text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2 py-0.5 rounded font-semibold transition"
+                  >
+                    {copiedLyrics ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    {copiedLyrics ? 'Copied!' : 'Copy Lyrics'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="max-h-56 overflow-y-auto font-mono text-xs text-slate-300 bg-slate-900/90 rounded-lg p-3 border border-slate-800 space-y-2 leading-relaxed">
+            <div className="max-h-64 overflow-y-auto font-mono text-xs text-slate-300 bg-slate-900/90 rounded-lg p-3 border border-slate-800 space-y-2 leading-relaxed">
               {audioTrack?.lyrics ? (
                 audioTrack.lyrics.split('\n\n').map((block, i) => (
                   <div key={i} className="pb-1 border-b border-slate-800/50 last:border-0">
@@ -196,7 +284,7 @@ export default function MusicStudio({
                 ))
               ) : (
                 <p className="text-slate-500 italic">
-                  Click "Generate Beat & Lyrics" to compose musical acts from your diary.
+                  Click "Generate Prompts & Lyrics" to compose musical acts from your travel diary.
                 </p>
               )}
             </div>

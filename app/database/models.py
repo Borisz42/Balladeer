@@ -23,6 +23,8 @@ class MediaAssetModel(BaseModel):
     tags: List[str] = Field(default_factory=list)
     embedding: Optional[List[float]] = None # 512-dim float vector
     is_active: bool = True
+    is_indexed: bool = False
+    indexed_by_model: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
 

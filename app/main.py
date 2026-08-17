@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.core.logging_config import setup_logging
 from app.core.config import get_settings
 from app.core.memory_manager import memory_manager
 from app.api.projects import router as projects_router
@@ -13,14 +14,13 @@ from app.api.progress import router as progress_router
 from app.api.models import router as models_router
 from app.api.system import router as system_router, perform_clean_shutdown
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-logger = logging.getLogger("balladeer")
+# Initialize dual console + timestamped file logging in logs/
+setup_logging()
+logger = logging.getLogger("balladeer.server")
 
 settings = get_settings()
 settings.ensure_directories()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

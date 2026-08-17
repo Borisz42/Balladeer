@@ -4,8 +4,27 @@ import numpy as np
 from pathlib import Path
 from app.database import db, ProjectModel
 from app.pipeline.indexer import indexer
+from app.models.qwen_vlm import qwen_vlm
+
+class MockChatLlama:
+    def create_chat_completion(self, messages, max_tokens=256):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"caption": "A scenic video clip of a journey", "tags": ["video", "scenic"], "quality_score": 8.0}'
+                    }
+                }
+            ]
+        }
+
+@pytest.fixture(autouse=True)
+def mock_qwen_llm(monkeypatch):
+    monkeypatch.setattr(qwen_vlm, "_get_llm", lambda: MockChatLlama())
+    monkeypatch.setattr(qwen_vlm, "_loaded_model_name", "local-qwen3.5-4b")
 
 def test_video_indexing_foreign_key_integrity(tmp_path):
+
     proj_id = f"proj_test_fk_video_{uuid.uuid4().hex[:8]}"
     # 1. Create project
     proj = db.create_project(ProjectModel(

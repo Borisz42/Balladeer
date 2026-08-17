@@ -1,5 +1,5 @@
 import React from 'react';
-import { Music, Video, Plus, HardDrive, Cpu, RefreshCw, Power } from 'lucide-react';
+import { Music, Video, Plus, HardDrive, Cpu, RefreshCw, Power, Shield, ToggleLeft, ToggleRight, Key } from 'lucide-react';
 
 export default function Header({
   projects,
@@ -7,12 +7,16 @@ export default function Header({
   onSelectProject,
   onOpenNewProject,
   health,
+  systemSettings,
+  onToggleLocalAi,
   onRefresh,
   onOpenModelManager,
   onShutdown
 }) {
   const vram = health?.vram_stats;
   const isCuda = health?.cuda_available;
+  const isLocalOnly = systemSettings?.only_local_ai;
+  const hasGeminiKey = systemSettings?.has_gemini_api_key;
 
   return (
     <header className="glass-panel sticky top-0 z-40 px-6 py-3 border-b border-slate-800/80 flex items-center justify-between">
@@ -33,7 +37,7 @@ export default function Header({
       </div>
 
       {/* Project Selector & Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-3 py-1.5">
           <label className="text-xs text-slate-400 font-medium">Project:</label>
           <select
@@ -61,13 +65,30 @@ export default function Header({
           New Project
         </button>
 
+        {/* Master Switch: Only Use Local AI */}
+        <button
+          onClick={() => onToggleLocalAi && onToggleLocalAi(!isLocalOnly)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
+            isLocalOnly
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
+              : 'bg-slate-800/90 text-slate-300 border-slate-700 hover:bg-slate-700'
+          }`}
+          title={isLocalOnly ? "Exclusively executing on local RTX GPU (Qwen3.5-4B)" : "Click to force 100% offline local AI execution"}
+        >
+          <Shield className={`w-3.5 h-3.5 ${isLocalOnly ? 'text-amber-400' : 'text-teal-400'}`} />
+          <span>{isLocalOnly ? 'Local AI Only' : 'Cloud Waterfall'}</span>
+        </button>
+
         <button
           onClick={onOpenModelManager}
           className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold px-3 py-1.5 rounded-lg text-xs transition"
-          title="Inspect and pre-fetch AI model weights"
+          title="Configure Google AI Studio API key and view live quota pools"
         >
           <Cpu className="w-3.5 h-3.5 text-teal-400" />
-          AI Models
+          <span>AI Models</span>
+          {hasGeminiKey && !isLocalOnly && (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          )}
         </button>
 
         <button
@@ -80,7 +101,7 @@ export default function Header({
         </button>
 
         {/* Hardware Status Badge */}
-        <div className="hidden lg:flex items-center gap-3 pl-3 border-l border-slate-800 text-xs font-mono">
+        <div className="hidden xl:flex items-center gap-3 pl-3 border-l border-slate-800 text-xs font-mono">
           <div className="flex items-center gap-1.5 text-slate-300">
             <Cpu className={`w-3.5 h-3.5 ${isCuda ? 'text-teal-400' : 'text-amber-400'}`} />
             <span>{isCuda ? 'CUDA Staged' : 'CPU Mode'}</span>
