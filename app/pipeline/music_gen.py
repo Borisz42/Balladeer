@@ -17,24 +17,67 @@ class MusicGenerator:
     def __init__(self):
         self.settings = get_settings()
 
-    def partition_narrative_to_acts(self, diary_text: str) -> List[Dict[str, Any]]:
+    def partition_narrative_to_acts(
+        self,
+        diary_text: str,
+        diary_days: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        # If structured days are provided, build acts from active (non-discarded) days
+        if diary_days:
+            active_days = [d for d in diary_days if d.get("is_active", True) and not d.get("is_discarded", False)]
+            if active_days:
+                acts = []
+                for i, d in enumerate(active_days):
+                    act_name = f"Verse {i + 1}"
+                    events_str = d.get("events", "").strip()
+                    lines = [l.strip() for l in events_str.split("\n") if l.strip()]
+                    if not lines:
+                        lines = [f"Journey through Day {d.get('day_number', i+1)}"]
+
+                    acts.append({
+                        "act_type": act_name,
+                        "day": d.get("day_number", i + 1),
+                        "date": d.get("date"),
+                        "title": d.get("title", f"Day {d.get('day_number', i+1)}"),
+                        "lines": lines
+                    })
+
+                # Insert Chorus after first verse if multiple acts
+                if len(acts) >= 2:
+                    acts.insert(1, {
+                        "act_type": "Chorus",
+                        "day": acts[0]["day"],
+                        "date": acts[0].get("date"),
+                        "lines": ["Chasing the light across the open sky", "Every moment flying by"]
+                    })
+
+                acts.append({
+                    "act_type": "Outro",
+                    "day": acts[-1]["day"],
+                    "date": acts[-1].get("date"),
+                    "lines": ["Memories etched in gold, a story told."]
+                })
+                return acts
+
         lines = [l.strip() for l in diary_text.strip().split("\n") if l.strip()]
         if not lines:
             lines = ["A journey through morning mist and golden skies.", "Walking through ancient stone pathways.", "Sunset overlooking the horizon."]
 
         acts = []
-        current_act = {"act_type": "Verse 1", "day": 1, "lines": []}
+        current_act = {"act_type": "Verse 1", "day": 1, "date": None, "lines": []}
         day_counter = 1
 
         for line in lines:
-            day_match = re.search(r"(?:day|stage|act)\s*(\d+)", line, re.IGNORECASE)
+            day_match = re.search(r"(?:day|stage|act)\s*(\d+)(?:\s*\(([^)]+)\))?", line, re.IGNORECASE)
             if day_match:
                 if current_act["lines"]:
                     acts.append(current_act)
                 day_counter = int(day_match.group(1))
+                date_str = day_match.group(2) if day_match.group(2) else None
                 current_act = {
                     "act_type": f"Verse {len(acts) + 1}",
                     "day": day_counter,
+                    "date": date_str,
                     "lines": [line]
                 }
             else:
@@ -47,12 +90,14 @@ class MusicGenerator:
             acts.insert(1, {
                 "act_type": "Chorus",
                 "day": acts[0]["day"],
+                "date": acts[0].get("date"),
                 "lines": ["Chasing the light across the open sky", "Every moment flying by"]
             })
 
         acts.append({
             "act_type": "Outro",
             "day": acts[-1]["day"],
+            "date": acts[-1].get("date"),
             "lines": ["Memories etched in gold, a story told."]
         })
 

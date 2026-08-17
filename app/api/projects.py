@@ -32,10 +32,24 @@ aligner = AudioAligner()
 beat_solver = BeatSolver()
 compositor = VideoCompositor()
 
+from app.pipeline.rephraser import diary_rephraser
+
 class CreateProjectRequest(BaseModel):
     title: str
     narrative_text: str
     config_override: Optional[Dict[str, Any]] = None
+
+class UpdateProjectRequest(BaseModel):
+    title: Optional[str] = None
+    narrative_text: Optional[str] = None
+    config_override: Optional[Dict[str, Any]] = None
+
+class RephraseRequest(BaseModel):
+    text: Optional[str] = None
+    day_number: Optional[int] = None
+    date: Optional[str] = None
+    days: Optional[List[Dict[str, Any]]] = None
+    mode: Optional[str] = "single_day" # "single_day" | "full_diary" | "structured_days"
 
 class IndexDirRequest(BaseModel):
     directory_path: str
@@ -56,6 +70,70 @@ def create_project(req: CreateProjectRequest):
         config_override=req.config_override
     )
     return db.create_project(proj)
+
+@router.put("/{project_id}", response_model=ProjectDetailResponse)
+@router.put("/{project_id}/diary", response_model=ProjectDetailResponse)
+def update_project_diary(project_id: str, req: UpdateProjectRequest):
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    updated_proj = db.update_project(
+        project_id=project_id,
+        title=req.title,
+        narrative_text=req.narrative_text,
+        config_override=req.config_override
+    )
+
+    # Sync assets with updated diary days if available
+    if req.config_override and "diary_days" in req.config_override:
+        indexer.sync_assets_with_diary_dates(project_id, req.config_override["diary_days"])
+
+    return get_project_detail(project_id)
+
+@router.post("/rephrase")
+@router.post("/{project_id}/rephrase")
+def rephrase_diary_text(req: RephraseRequest, project_id: Optional[str] = None):
+    """
+    AI re-phraser & spell correction for individual day events or full diary schedules.
+    """
+    if req.days is not None:
+        rephrased_days = diary_rephraser.rephrase_structured_days(req.days)
+        active_lines = []
+        for d in rephrased_days:
+            if d.get("is_active", True) and not d.get("is_discarded", False):
+                date_part = f" ({d['date']})" if d.get("date") else ""
+                active_lines.append(f"Day {d.get('day_number', 1)}{date_part}: {d.get('events', '')}")
+        
+        full_text = "\n".join(active_lines)
+        return {
+            "rephrased_days": rephrased_days,
+            "rephrased_text": full_text
+        }
+    elif req.mode == "full_diary" or "\n" in (req.text or ""):
+        full_rephrased = diary_rephraser.rephrase_full_diary(req.text or "")
+        return {
+            "rephrased_text": full_rephrased
+        }
+    else:
+        single_rephrased = diary_rephraser.rephrase_single_day(
+            req.text or "",
+            day_number=req.day_number,
+            date_str=req.date
+        )
+        return {
+            "rephrased_text": single_rephrased
+        }
+
+@router.post("/{project_id}/sync-diary-dates")
+def sync_diary_dates(project_id: str):
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    diary_days = (proj.config_override or {}).get("diary_days", [])
+    updated = indexer.sync_assets_with_diary_dates(project_id, diary_days)
+    return {"status": "synced", "project_id": project_id, "updated_assets": updated}
 
 @router.get("", response_model=List[ProjectModel])
 def list_projects():
@@ -158,8 +236,8 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
 
     db.update_project_status(project_id, "generating_music")
     try:
-        await progress_tracker.emit(project_id, "music_gen", 15.0, "Structuring narrative acts and lyrics...")
-        acts = music_gen.partition_narrative_to_acts(proj.narrative_text)
+        diary_days = proj.config_override.get("diary_days") if proj.config_override else None
+        acts = music_gen.partition_narrative_to_acts(proj.narrative_text, diary_days=diary_days)
         lyrics, gen_prompt = music_gen.generate_rhyming_lyrics(acts, is_instrumental=req.is_instrumental)
         prompt = req.prompt or gen_prompt
 

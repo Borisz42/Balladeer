@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { X, Sparkles, Sliders, Image, Film, Music, Smartphone, Monitor, Square } from 'lucide-react';
+import StructuredDiaryInput from './StructuredDiaryInput';
 
 export default function NewProjectModal({ isOpen, onClose, onCreate }) {
   const [title, setTitle] = useState('');
   const [narrativeText, setNarrativeText] = useState('');
+  const [diaryDays, setDiaryDays] = useState([]);
+  const [dateRange, setDateRange] = useState({ startDate: '', finishDate: '' });
   const [aspectRatio, setAspectRatio] = useState('16:9'); // '16:9', '9:16', '1:1'
   const [musicMode, setMusicMode] = useState('vocal'); // 'vocal', 'instrumental'
   const [bgMode, setBgMode] = useState('blurred_fill');
@@ -16,11 +19,10 @@ export default function NewProjectModal({ isOpen, onClose, onCreate }) {
 
   if (!isOpen) return null;
 
-  const handleLoadSampleDiary = () => {
-    setTitle('Kyoto & Tokyo Expedition');
-    setNarrativeText(`Day 1: Arrived in Kyoto amidst gentle autumn rain. Walked through the historic Gion district under red paper lanterns.
-Day 2: Morning stroll through the whispering Arashiyama bamboo forest. Golden sunlight piercing through the towering stalks.
-Day 3: Shinkansen bullet train to Tokyo. Neon lights blazing across the bustling Shibuya crossing at midnight.`);
+  const handleDiaryChange = (days, formattedNarrative, { startDate, finishDate }) => {
+    setDiaryDays(days);
+    setNarrativeText(formattedNarrative);
+    setDateRange({ startDate, finishDate });
   };
 
   const handleSubmit = async (e) => {
@@ -39,7 +41,10 @@ Day 3: Shinkansen bullet train to Tokyo. Neon lights blazing across the bustling
         },
         audio: {
           is_instrumental: musicMode === 'instrumental'
-        }
+        },
+        start_date: dateRange.startDate,
+        finish_date: dateRange.finishDate,
+        diary_days: diaryDays
       };
       await onCreate(title, narrativeText, configOverride);
       onClose();
@@ -51,8 +56,8 @@ Day 3: Shinkansen bullet train to Tokyo. Neon lights blazing across the bustling
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="glass-panel w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 relative max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="glass-panel w-full max-w-3xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 relative max-h-[92vh] overflow-y-auto">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
@@ -66,7 +71,7 @@ Day 3: Shinkansen bullet train to Tokyo. Neon lights blazing across the bustling
           </div>
           <div>
             <h2 className="text-lg font-bold text-white">Create New Montage Project</h2>
-            <p className="text-xs text-slate-400">Configure diary story, aspect ratio & beat constraints</p>
+            <p className="text-xs text-slate-400">Configure day-by-day itinerary, aspect ratio &amp; musical constraints</p>
           </div>
         </div>
 
@@ -80,31 +85,19 @@ Day 3: Shinkansen bullet train to Tokyo. Neon lights blazing across the bustling
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Summer in the Alps"
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-teal-500"
+              placeholder="e.g. Kyoto & Tokyo Autumn Expedition"
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-teal-500 font-semibold"
             />
           </div>
 
+          {/* Structured Day-by-Day Diary Module */}
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                Narrative / Trip Diary
-              </label>
-              <button
-                type="button"
-                onClick={handleLoadSampleDiary}
-                className="text-xs text-teal-400 hover:text-teal-300 font-medium underline"
-              >
-                Load Sample Diary
-              </button>
-            </div>
-            <textarea
-              required
-              rows={4}
-              value={narrativeText}
-              onChange={(e) => setNarrativeText(e.target.value)}
-              placeholder="Paste your travel journal or story here. Mention Day 1, Day 2, etc. to partition musical acts..."
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-teal-500 font-mono text-xs"
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+              Trip Itinerary &amp; Narrative Diary
+            </label>
+            <StructuredDiaryInput
+              initialNarrativeText={narrativeText}
+              onChange={handleDiaryChange}
             />
           </div>
 

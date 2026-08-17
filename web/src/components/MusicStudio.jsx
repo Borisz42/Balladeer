@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Music, Sliders, Play, RotateCw, Volume2, Mic, Disc3, VolumeX } from 'lucide-react';
+import { Music, Sliders, Play, RotateCw, Volume2, Mic, Disc3, VolumeX, BookOpen } from 'lucide-react';
 
 export default function MusicStudio({
   project,
   audioTrack,
   onGenerateMusic,
+  onOpenDiary,
   isGenerating,
   health
 }) {
@@ -31,7 +32,7 @@ export default function MusicStudio({
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <Disc3 className="w-4 h-4 text-teal-400" />
-              Music & Lyric Studio (MiniMax 3 CMF + Demucs + MMS_FA)
+              Music &amp; Lyric Studio (MiniMax 3 CMF + Demucs + MMS_FA)
             </h2>
             <span className="flex items-center gap-1.5 text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -44,6 +45,18 @@ export default function MusicStudio({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          {onOpenDiary && (
+            <button
+              type="button"
+              onClick={onOpenDiary}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-teal-300 border border-slate-700 text-xs font-semibold transition"
+              title="Open and edit day-by-day diary"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-teal-400" />
+              Edit Trip Diary
+            </button>
+          )}
+
           <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
             <span className="text-[11px] text-slate-400">Duration:</span>
             <select

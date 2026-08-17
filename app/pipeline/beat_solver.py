@@ -192,7 +192,20 @@ class BeatSolver:
                 except ValueError:
                     pass
 
-            score = (alpha * chrono_alignment) + (beta * quality_term) - (gamma * recency_penalty)
+            date_affinity = 0.0
+            if asset.tags:
+                for tag in asset.tags:
+                    if tag.startswith("day:Day "):
+                        try:
+                            d_num = int(tag.replace("day:Day ", ""))
+                            # Estimate which day the song progress corresponds to
+                            target_day = max(1, int(round(song_progress * 5)) + 1)
+                            if d_num == target_day:
+                                date_affinity = 0.25
+                        except Exception:
+                            pass
+
+            score = (alpha * chrono_alignment) + (beta * quality_term) + date_affinity - (gamma * recency_penalty)
             if score > best_score:
                 best_score = score
                 best_asset = asset

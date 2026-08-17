@@ -238,6 +238,16 @@ class MediaIndexer:
             vlm_res = qwen_vlm.describe_and_score(file_path, file_path.name)
             emb = self.generate_clip_embedding(file_path)
 
+            tags = list(vlm_res["tags"])
+            # Check project diary days for tag enrichment
+            proj = db.get_project(project_id)
+            if proj and proj.config_override and "diary_days" in proj.config_override:
+                matched_day = self.match_capture_time_to_day(meta["capture_time"], proj.config_override["diary_days"])
+                if matched_day:
+                    tags.append(f"day:Day {matched_day.get('day_number', 1)}")
+                    if matched_day.get("date"):
+                        tags.append(f"date:{matched_day['date']}")
+
             asset = MediaAssetModel(
                 id=asset_id,
                 project_id=project_id,
@@ -247,7 +257,7 @@ class MediaIndexer:
                 duration_sec=0.0,
                 quality_score=vlm_res["quality_score"],
                 caption=vlm_res["caption"],
-                tags=vlm_res["tags"],
+                tags=tags,
                 embedding=emb,
                 is_active=True,
                 width=meta["width"],
@@ -255,6 +265,56 @@ class MediaIndexer:
             )
             db.add_media_asset(asset)
             return asset
+
+    def match_capture_time_to_day(self, capture_time: Optional[str], diary_days: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Matches a media capture timestamp to an active diary day."""
+        if not capture_time or not diary_days:
+            return None
+
+        cap_date = capture_time[:10] # YYYY-MM-DD
+        active_days = [d for d in diary_days if d.get("is_active", True) and not d.get("is_discarded", False)]
+        if not active_days:
+            return None
+
+        # 1. Exact date match
+        for d in active_days:
+            if d.get("date") == cap_date:
+                return d
+
+        # 2. Closest date match
+        try:
+            cap_dt = datetime.fromisoformat(cap_date)
+            def date_diff(d):
+                try:
+                    return abs((datetime.fromisoformat(d.get("date", cap_date)) - cap_dt).total_seconds())
+                except Exception:
+                    return float("inf")
+            
+            sorted_days = sorted(active_days, key=date_diff)
+            return sorted_days[0] if sorted_days else None
+        except Exception:
+            return active_days[0] if active_days else None
+
+    def sync_assets_with_diary_dates(self, project_id: str, diary_days: List[Dict[str, Any]]) -> int:
+        """
+        Re-indexes and updates day/date tags on all media assets of a project.
+        """
+        assets = db.get_project_assets(project_id)
+        updated_count = 0
+        for asset in assets:
+            matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+            # Retain non-day/date tags
+            clean_tags = [t for t in asset.tags if not t.startswith("day:") and not t.startswith("date:")]
+            if matched_day:
+                clean_tags.append(f"day:Day {matched_day.get('day_number', 1)}")
+                if matched_day.get("date"):
+                    clean_tags.append(f"date:{matched_day['date']}")
+                if matched_day.get("title") and matched_day["title"] not in clean_tags:
+                    clean_tags.append(matched_day["title"])
+
+            db.update_media_asset(asset.id, tags=clean_tags)
+            updated_count += 1
+        return updated_count
 
 indexer = MediaIndexer()
 

@@ -168,9 +168,67 @@ class Database:
                 (status, error_message, project_id)
             )
 
+    def update_project(
+        self,
+        project_id: str,
+        title: Optional[str] = None,
+        narrative_text: Optional[str] = None,
+        config_override: Optional[Dict[str, Any]] = None,
+        status: Optional[str] = None,
+        error_message: Optional[str] = None
+    ) -> Optional[ProjectModel]:
+        fields = []
+        values = []
+        if title is not None:
+            fields.append("title = ?")
+            values.append(title)
+        if narrative_text is not None:
+            fields.append("narrative_text = ?")
+            values.append(narrative_text)
+        if config_override is not None:
+            fields.append("config_override = ?")
+            values.append(json.dumps(config_override))
+        if status is not None:
+            fields.append("status = ?")
+            values.append(status)
+        if error_message is not None:
+            fields.append("error_message = ?")
+            values.append(error_message)
+
+        if fields:
+            values.append(project_id)
+            with self.get_connection() as conn:
+                conn.execute(f"UPDATE projects SET {', '.join(fields)} WHERE id = ?", tuple(values))
+
+        return self.get_project(project_id)
+
     def delete_project(self, project_id: str) -> None:
         with self.get_connection() as conn:
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+    def update_media_asset(
+        self,
+        asset_id: str,
+        tags: Optional[List[str]] = None,
+        caption: Optional[str] = None,
+        is_active: Optional[bool] = None
+    ) -> None:
+        fields = []
+        values = []
+        if tags is not None:
+            fields.append("tags = ?")
+            values.append(json.dumps(tags))
+        if caption is not None:
+            fields.append("caption = ?")
+            values.append(caption)
+        if is_active is not None:
+            fields.append("is_active = ?")
+            values.append(1 if is_active else 0)
+
+        if fields:
+            values.append(asset_id)
+            with self.get_connection() as conn:
+                conn.execute(f"UPDATE media_assets SET {', '.join(fields)} WHERE id = ?", tuple(values))
 
     # Media Asset Operations
     def add_media_asset(self, asset: MediaAssetModel) -> MediaAssetModel:

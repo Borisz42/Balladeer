@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import NewProjectModal from './components/NewProjectModal';
+import DiaryEditorModal from './components/DiaryEditorModal';
 import AssetGallery from './components/AssetGallery';
 import MusicStudio from './components/MusicStudio';
 import TimelineEditor from './components/TimelineEditor';
@@ -12,6 +13,7 @@ import {
   listProjects,
   getProject,
   createProject,
+  updateProjectDiary,
   uploadMediaFiles,
   indexDirectory,
   generateMusic,
@@ -32,6 +34,7 @@ export default function App() {
   const [projectDetail, setProjectDetail] = useState(null);
 
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
   const [activeSwapSlice, setActiveSwapSlice] = useState(null);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [isModelModalOpen, setIsModelModalOpen] = useState(false);
@@ -102,6 +105,18 @@ export default function App() {
     const newProj = await createProject(title, narrativeText, configOverride);
     await loadHealthAndProjects();
     setCurrentProjectId(newProj.id);
+  };
+
+  const handleSaveDiary = async (title, narrativeText, configOverride) => {
+    if (!currentProjectId) return;
+    try {
+      await updateProjectDiary(currentProjectId, { title, narrativeText, configOverride });
+      await loadProjectDetail(currentProjectId);
+      await loadHealthAndProjects();
+    } catch (err) {
+      console.error('Failed to save project diary:', err);
+      throw err;
+    }
   };
 
   const handleUploadFiles = async (files) => {
@@ -249,6 +264,7 @@ export default function App() {
         currentProject={projectDetail?.project}
         onSelectProject={setCurrentProjectId}
         onOpenNewProject={() => setIsNewProjectModalOpen(true)}
+        onOpenDiary={() => setIsDiaryModalOpen(true)}
         onOpenModelManager={() => setIsModelModalOpen(true)}
         onShutdown={handleShutdown}
         health={health}
@@ -310,6 +326,7 @@ export default function App() {
               project={projectDetail.project}
               audioTrack={projectDetail.audio_track}
               onGenerateMusic={handleGenerateMusic}
+              onOpenDiary={() => setIsDiaryModalOpen(true)}
               isGenerating={isGeneratingMusic}
               health={health}
             />
@@ -335,6 +352,13 @@ export default function App() {
         isOpen={isNewProjectModalOpen}
         onClose={() => setIsNewProjectModalOpen(false)}
         onCreate={handleCreateProject}
+      />
+
+      <DiaryEditorModal
+        isOpen={isDiaryModalOpen}
+        onClose={() => setIsDiaryModalOpen(false)}
+        project={projectDetail?.project}
+        onSave={handleSaveDiary}
       />
 
       <AssetSwapModal

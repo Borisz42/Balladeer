@@ -49,7 +49,8 @@ tools/ComfyUI/
 *.onnx
 *.h5
 *.tflite
-models/
+/models/
+data/weights/
 weights/
 checkpoints/
 hf_cache/
