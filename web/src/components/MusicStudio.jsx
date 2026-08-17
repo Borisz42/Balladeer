@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
-import { Music, Sliders, Play, RotateCw, Volume2, Mic, Disc3, Upload, Copy, Check, Sparkles, AlertTriangle } from 'lucide-react';
+import { Music, Sliders, Play, RotateCw, Volume2, Mic, Disc3, VolumeX, BookOpen, Upload, Copy, Check, Sparkles, AlertTriangle } from 'lucide-react';
 
 export default function MusicStudio({
   project,
   audioTrack,
   onGenerateMusic,
   onUploadAudio,
+  onOpenDiary,
   isGenerating,
   health
 }) {
@@ -80,7 +81,20 @@ export default function MusicStudio({
           </p>
         </div>
 
+
         <div className="flex items-center gap-3 flex-wrap">
+          {onOpenDiary && (
+            <button
+              type="button"
+              onClick={onOpenDiary}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-teal-300 border border-slate-700 text-xs font-semibold transition"
+              title="Open and edit day-by-day diary"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-teal-400" />
+              Edit Trip Diary
+            </button>
+          )}
+
           <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
             <span className="text-[11px] text-slate-400">Duration:</span>
             <select

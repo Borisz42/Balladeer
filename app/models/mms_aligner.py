@@ -42,7 +42,8 @@ class MMSAligner:
         vocal_path: Path,
         lyrics: Optional[str] = None,
         beat_grid: Optional[List[float]] = None,
-        lyrics_text: Optional[str] = None
+        lyrics_text: Optional[str] = None,
+        **kwargs
     ) -> List[AlignedWordModel]:
         """
         Aligns lyric words phonetically to vocal stem timestamps and quantizes to beat grid.

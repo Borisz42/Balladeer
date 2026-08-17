@@ -1,11 +1,13 @@
 import React from 'react';
-import { Music, Video, Plus, HardDrive, Cpu, RefreshCw, Power, Shield, ToggleLeft, ToggleRight, Key } from 'lucide-react';
+import { Music, Video, Plus, HardDrive, Cpu, RefreshCw, Power, Shield, ToggleLeft, ToggleRight, Key, BookOpen } from 'lucide-react';
+
 
 export default function Header({
   projects,
   currentProject,
   onSelectProject,
   onOpenNewProject,
+  onOpenDiary,
   health,
   systemSettings,
   onToggleLocalAi,
@@ -56,6 +58,17 @@ export default function Header({
             )}
           </select>
         </div>
+
+        {currentProject && (
+          <button
+            onClick={onOpenDiary}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-teal-500/20 to-cyan-500/20 hover:from-teal-500/30 hover:to-cyan-500/30 text-teal-300 border border-teal-500/40 font-semibold px-3 py-1.5 rounded-lg text-xs transition shadow-sm"
+            title="Edit day-by-day itinerary, dates, discard/restore days, and re-phrase with AI"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-teal-400" />
+            Trip Diary
+          </button>
+        )}
 
         <button
           onClick={onOpenNewProject}

@@ -1,4 +1,5 @@
 import os
+import shutil
 import logging
 import subprocess
 from pathlib import Path
@@ -18,28 +19,38 @@ class CMFNativeRunner:
     def __init__(self):
         self.settings = get_settings()
 
+    def get_cortiq_exe(self) -> Optional[Path]:
+        local_tool = self.settings.project_root / "tools" / "cortiq.exe"
+        if local_tool.exists():
+            return local_tool
+        path_tool = shutil.which("cortiq.exe") or shutil.which("cortiq")
+        return Path(path_tool) if path_tool else None
+
     def is_available(self) -> bool:
-        cortiq_exe = self.settings.project_root / "tools" / "cortiq.exe"
+        cortiq_exe = self.get_cortiq_exe()
         cmf_pkg = self.settings.data_dir / "weights" / "minimax-music3" / self.settings.audio.cmf_filename
-        return cortiq_exe.exists() and cmf_pkg.exists()
+        return cortiq_exe is not None and cortiq_exe.exists() and cmf_pkg.exists()
 
     def generate_music(
         self,
-        lyrics: str,
-        prompt: str,
+        lyrics: str = "",
+        prompt: str = "",
         bpm: float = 120.0,
         target_duration_sec: float = 15.0,
+        duration_sec: Optional[float] = None,
         is_instrumental: bool = False,
-        progress_callback: Optional[Callable[[str, float], None]] = None
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+        **kwargs
     ) -> Optional[np.ndarray]:
         """
         Executes cortiq.exe subprocess to synthesize MiniMax Music 3 audio.
         """
+        duration = duration_sec if duration_sec is not None else target_duration_sec
         if not self.is_available():
             logger.debug("CMF Native runner weights or binary not present.")
             return None
 
-        cortiq_exe = self.settings.project_root / "tools" / "cortiq.exe"
+        cortiq_exe = self.get_cortiq_exe()
         cmf_pkg = self.settings.data_dir / "weights" / "minimax-music3" / self.settings.audio.cmf_filename
         out_wav = self.settings.data_dir / "output" / "temp_cmf_out.wav"
         out_wav.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +61,7 @@ class CMFNativeRunner:
             "--prompt", prompt,
             "--lyrics", lyrics if not is_instrumental else "[Instrumental]",
             "--bpm", str(int(bpm)),
-            "--duration", str(float(target_duration_sec)),
+            "--duration", str(float(duration)),
             "--output", str(out_wav)
         ]
 
@@ -66,12 +77,13 @@ class CMFNativeRunner:
                 bufsize=1
             )
 
-            for line in proc.stdout:
-                line_str = line.strip()
-                if "ar " in line_str and progress_callback:
-                    progress_callback(f"Generating token sequence: {line_str}", 40.0)
-                elif "denoise " in line_str and progress_callback:
-                    progress_callback(f"Latent diffusion: {line_str}", 60.0)
+            if proc.stdout:
+                for line in proc.stdout:
+                    line_str = line.strip()
+                    if "ar " in line_str and progress_callback:
+                        progress_callback(f"Generating token sequence: {line_str}", 40.0)
+                    elif "denoise " in line_str and progress_callback:
+                        progress_callback(f"Latent diffusion: {line_str}", 60.0)
 
             proc.wait()
             if proc.returncode == 0 and out_wav.exists():

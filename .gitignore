@@ -49,9 +49,12 @@ tools/ComfyUI/
 *.onnx
 *.h5
 *.tflite
-/models/
+data/weights/
+weights/
+checkpoints/
 /weights/
 /checkpoints/
+
 hf_cache/
 .cache/
 huggingface/

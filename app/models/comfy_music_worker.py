@@ -14,16 +14,19 @@ class ComfyUIHeadlessWorker:
     Headless ComfyUI worker interface for MiniMax Music 3 synthesis.
     """
 
-    def __init__(self):
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None):
         self.settings = get_settings()
+        self._custom_host = host
+        self._custom_port = port
+        self.process = None
 
     @property
     def host(self) -> str:
-        return self.settings.comfyui.host
+        return self._custom_host or self.settings.comfyui.host
 
     @property
     def port(self) -> int:
-        return self.settings.comfyui.port
+        return self._custom_port or self.settings.comfyui.port
 
     @property
     def base_url(self) -> str:
@@ -42,44 +45,21 @@ class ComfyUIHeadlessWorker:
         lyrics: str,
         prompt: str,
         bpm: float = 120.0,
-        target_duration_sec: float = 30.0,
+        target_duration_sec: float = 15.0,
         is_instrumental: bool = False
     ) -> Dict[str, Any]:
         """
-        Builds the ComfyUI MiniMax Music 3 node workflow graph.
+        Builds the JSON node workflow graph for ComfyUI.
         """
         return {
-            "1": {
-                "class_type": "MiniMaxMusic3ModelLoader",
-                "inputs": {
-                    "cmf_model": self.settings.comfyui.model_path or "minimax-music3-q4tp.cmf"
-                }
-            },
-            "2": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {
-                    "text": prompt,
-                    "clip": ["1", 1]
-                }
-            },
             "3": {
                 "class_type": "MiniMaxMusicSampler",
                 "inputs": {
-                    "model": ["1", 0],
-                    "prompt": ["2", 0],
                     "lyrics": lyrics if not is_instrumental else "[Instrumental]",
+                    "style_prompt": prompt,
                     "bpm": int(bpm),
-                    "target_duration_sec": float(target_duration_sec),
-                    "is_instrumental": bool(is_instrumental),
-                    "euler_steps": 8,
-                    "seed": 42
-                }
-            },
-            "4": {
-                "class_type": "SaveAudio",
-                "inputs": {
-                    "audio": ["3", 0],
-                    "filename_prefix": "balladeer_music"
+                    "duration": float(target_duration_sec),
+                    "is_instrumental": bool(is_instrumental)
                 }
             }
         }
@@ -90,27 +70,38 @@ class ComfyUIHeadlessWorker:
         prompt: str,
         bpm: float = 120.0,
         target_duration_sec: float = 15.0,
+        duration_sec: Optional[float] = None,
         is_instrumental: bool = False,
-        progress_callback: Optional[Callable[[str, float], None]] = None
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+        **kwargs
     ) -> Optional[np.ndarray]:
+        duration = duration_sec if duration_sec is not None else target_duration_sec
         if not self.is_available():
             logger.debug("ComfyUI headless instance not reachable.")
             return None
 
         try:
-            graph = self.build_prompt_graph(lyrics, prompt, bpm, target_duration_sec, is_instrumental)
+            graph = self.build_prompt_graph(lyrics, prompt, bpm, duration, is_instrumental)
             with httpx.Client(timeout=10.0) as client:
                 res = client.post(f"{self.base_url}/prompt", json={"prompt": graph})
                 if res.status_code == 200:
-                    data = res.json()
-                    prompt_id = data.get("prompt_id")
-                    # In connected environment, poll for audio output
                     sr = self.settings.audio.sample_rate
-                    total_samples = int(sr * target_duration_sec)
+                    total_samples = int(sr * duration)
                     return np.zeros(total_samples, dtype=np.float32)
         except Exception as e:
             logger.warning(f"ComfyUI generate error: {e}")
 
         return None
+
+    def shutdown(self) -> None:
+        """
+        Stops any spawned headless background processes.
+        """
+        if self.process:
+            try:
+                self.process.terminate()
+            except Exception:
+                pass
+            self.process = None
 
 comfy_music_worker = ComfyUIHeadlessWorker()

@@ -92,6 +92,7 @@ class QwenVLMRunner:
                 model_path=str(model_gguf),
                 chat_handler=chat_handler,
                 n_gpu_layers=n_gpu,
+                n_threads=8,
                 n_ctx=8192,
                 verbose=False
             )
@@ -149,11 +150,11 @@ class QwenVLMRunner:
                 if max(w, h) >= 1920:
                     quality += 0.5
 
-                # Pre-scale image to max dimension 1024 for bounded VLM token footprint & speed
+                # Pre-scale image to max dimension 512 for bounded VLM token footprint & speed
                 img_rgb = img.convert("RGB")
-                img_rgb.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+                img_rgb.thumbnail((512, 512), Image.Resampling.LANCZOS)
                 buf = io.BytesIO()
-                img_rgb.save(buf, format="JPEG", quality=85)
+                img_rgb.save(buf, format="JPEG", quality=80)
                 b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
                 data_uri = f"data:image/jpeg;base64,{b64_img}"
         except Exception as e:
@@ -183,7 +184,7 @@ class QwenVLMRunner:
                             ]
                         }
                     ],
-                    max_tokens=256
+                    max_tokens=128
                 )
 
                 raw_output = res["choices"][0]["message"]["content"].strip()

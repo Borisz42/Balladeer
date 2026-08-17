@@ -51,6 +51,38 @@ export async function createProject(title, narrativeText, configOverride = null)
   return res.json();
 }
 
+export async function updateProjectDiary(id, { title, narrativeText, configOverride }) {
+  const res = await fetch(`${API_BASE}/projects/${id}/diary`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      narrative_text: narrativeText,
+      config_override: configOverride
+    })
+  });
+  if (!res.ok) throw new Error('Failed to update project diary');
+  return res.json();
+}
+
+export async function rephraseDiary(params) {
+  const res = await fetch(`${API_BASE}/projects/rephrase`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  if (!res.ok) throw new Error('Failed to rephrase diary');
+  return res.json();
+}
+
+export async function syncProjectDiaryDates(projectId) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/sync-diary-dates`, {
+    method: 'POST'
+  });
+  if (!res.ok) throw new Error('Failed to sync diary dates');
+  return res.json();
+}
+
 export async function deleteProject(id) {
   const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
   return res.json();

@@ -26,6 +26,7 @@ __all__ = [
     "ComfyUIHeadlessWorker",
     "demucs_separator",
     "DemucsSeparator",
+    "demucs_wrapper",
     "mms_aligner",
     "MMSAligner",
     "clip_embedder",
