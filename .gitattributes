@@ -1,2 +1,66 @@
-# Auto detect text files and perform LF normalization
+# Set default behavior to automatically normalize line endings
 * text=auto
+
+# Source code files (normalize to LF)
+*.py text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.svg text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.txt text eol=lf
+*.ass text eol=lf
+*.srt text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.env.example text eol=lf
+
+# Shell scripts (always LF)
+*.sh text eol=lf
+
+# Windows-specific scripts (always CRLF)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.ogg binary
+*.mp4 binary
+*.mov binary
+*.avi binary
+*.mkv binary
+*.webm binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.bin binary
+*.gguf binary
+*.cmf binary
+*.safetensors binary
+*.pt binary
+*.pth binary
+*.ckpt binary
+*.onnx binary
+*.sqlite binary
+*.sqlite3 binary
+*.db binary
