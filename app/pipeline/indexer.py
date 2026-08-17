@@ -478,9 +478,10 @@ class MediaIndexer:
                 if matched_day.get("title") and matched_day["title"] not in clean_tags:
                     clean_tags.append(matched_day["title"])
 
-            db.update_media_asset(asset.id, tags=clean_tags)
+            db.update_media_asset(asset.id, {"tags": clean_tags})
             updated_count += 1
         return updated_count
+
 
     def index_media_file(self, project_id: str, file_path: Path) -> MediaAssetModel:
         """Legacy synchronous helper for single file tests/scripts."""

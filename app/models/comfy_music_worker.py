@@ -52,6 +52,12 @@ class ComfyUIHeadlessWorker:
         Builds the JSON node workflow graph for ComfyUI.
         """
         return {
+            "1": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {
+                    "text": prompt
+                }
+            },
             "3": {
                 "class_type": "MiniMaxMusicSampler",
                 "inputs": {
@@ -63,6 +69,7 @@ class ComfyUIHeadlessWorker:
                 }
             }
         }
+
 
     def generate(
         self,

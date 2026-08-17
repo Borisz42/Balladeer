@@ -152,7 +152,7 @@ def sync_diary_dates(project_id: str):
 @router.get("", response_model=List[ProjectModel])
 def list_projects():
     return db.list_projects()
->>>>>>> main
+
 
 @router.get("/{project_id}", response_model=ProjectDetailResponse)
 def get_project_detail(project_id: str):
