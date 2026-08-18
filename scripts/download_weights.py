@@ -18,26 +18,10 @@ MODELS_INFO = {
     },
     "qwen2.5-vl-3b": {
         "repo_id": "Qwen/Qwen2.5-VL-3B-Instruct",
-        "description": "Qwen 2.5 VL 3B Vision & Language Model",
+        "description": "Qwen 2.5 VL 3B Vision & Language Model (Indexing & Text)",
         "ram_gb": 1.0,
-        "vram_gb": 3.0,
+        "vram_gb": 2.2,
         "allow_patterns": ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.yaml"]
-    },
-    "qwen3.5-9b": {
-        "repo_id": "unsloth/Qwen3.5-9B-GGUF",
-        "description": "Qwen 3.5 9B High-Capacity Vision & Language Model (Q4_K_M GGUF + BF16 MMProj)",
-        "ram_gb": 2.0,
-        "vram_gb": 5.8,
-        "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf", "*mmproj*BF16*.gguf", "*mmproj*bf16*.gguf", "*.json"]
-    },
-    "minimax-music3": {
-        "repo_id": "infosave/MiniMax-Music-3-cmf",
-        "description": "MiniMax Music 3 Quantized CMF Package (~6GB)",
-        "ram_gb": 6.0,
-        "vram_gb": 5.5,
-        "allow_patterns": ["*minimax-music3-q4tp.cmf", "*.cmf", "*.safetensors", "*.json"],
-        "filename": "minimax-music3-q4tp.cmf",
-        "url": "https://huggingface.co/infosave/MiniMax-Music-3-cmf"
     },
     "demucs": {
         "repo_id": "adefossez/HTDemucs",

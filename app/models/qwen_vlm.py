@@ -41,6 +41,12 @@ class QwenVLMRunner:
             torch.cuda.empty_cache()
         logger.info("[Local-AI] Model runner cache cleared for reload.")
 
+    async def preload_background(self):
+        """Asynchronously pre-loads Qwen 2.5 into GPU VRAM in the background at startup."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._get_model_and_processor)
+
     def _get_model_and_processor(self):
         """Loads or reloads the active local Qwen 2.5 VL on CUDA GPU."""
         settings = get_settings()

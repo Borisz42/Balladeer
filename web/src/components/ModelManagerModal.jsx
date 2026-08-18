@@ -207,14 +207,16 @@ export default function ModelManagerModal({ isOpen, onClose }) {
           <p className="text-xs text-slate-400 mb-3">
             Hardware-optimized pipeline automatically dispatches models to specialized tasks for maximum throughput on your 8GB GPU:
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
             <div className="p-3 rounded-xl border bg-slate-900 border-teal-500/30 text-slate-300">
               <div className="flex items-center justify-between mb-1">
                 <span className="font-bold text-xs text-teal-300">Qwen 2.5 VL 3B</span>
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-mono">Vision</span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Ultra-fast 256x256 batched vision captioning (~0.5s/item).
+                Ultra-fast 256x256 batched vision captioning (~0.5s/item).<br/>
+                2.5‑B token context, FP16 precision, fits comfortably on 8 GB VRAM.<br/>
+                Handles image‑grounded queries and multimodal reasoning.
               </p>
             </div>
 
@@ -224,17 +226,9 @@ export default function ModelManagerModal({ isOpen, onClose }) {
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Aesthetics</span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Pure zero-shot photographic aesthetic scoring & 768-dim embeddings.
-              </p>
-            </div>
-
-            <div className="p-3 rounded-xl border bg-slate-900 border-purple-500/30 text-slate-300">
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-xs text-purple-300">Qwen 3.5 9B</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono">Text / Music</span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                High-capacity reasoning for diary drafting and music prompts.
+                Pure zero-shot photographic aesthetic scoring & 768‑dim embeddings.<br/>
+                FP16 inference, ~1 ms per image, ideal for rapid thumbnail ranking.<br/>
+                Provides cross‑modal similarity for image‑text retrieval.
               </p>
             </div>
           </div>

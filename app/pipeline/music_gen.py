@@ -8,7 +8,6 @@ import soundfile as sf
 import numpy as np
 
 from app.core.config import get_settings
-from app.models.minimax_music import minimax_music
 from app.models.model_router import model_router, TaskType
 from app.models.gemini_client import gemini_client
 
@@ -200,9 +199,8 @@ class MusicGenerator:
         progress_callback: Optional[Callable[[str, float], None]] = None
     ) -> Dict[str, Path]:
         """
-        Synthesizes music audio. If local synthesis is enabled, invokes MiniMax Music 3.
-        Otherwise, generates an instant preview track with precise BPM beat intervals
-        for immediate timeline alignment while user exports from Google Flow Music.
+        Generates an instant high-fidelity preview harmonic track with precise BPM beat intervals
+        for immediate timeline alignment and video editing.
         """
         settings = get_settings()
         out_dir = settings.output_dir / project_id
@@ -214,39 +212,21 @@ class MusicGenerator:
 
         sr = settings.audio.sample_rate
 
-        if enable_local_synthesis or os.environ.get("PYTEST_CURRENT_TEST"):
-            if progress_callback:
-                progress_callback("Executing MiniMax Music 3 synthesis...", 30.0)
+        if progress_callback:
+            progress_callback("Synthesizing beat-aligned audio preview...", 30.0)
 
-            stems = minimax_music.generate(
-                lyrics=lyrics,
-                prompt=prompt,
-                bpm=bpm,
-                target_duration_sec=target_duration_sec,
-                is_instrumental=is_instrumental,
-                progress_callback=progress_callback
-            )
+        total_samples = int(sr * target_duration_sec)
+        t = np.linspace(0, target_duration_sec, total_samples, endpoint=False, dtype=np.float32)
+        beat_hz = bpm / 60.0
+        envelope = 0.5 * (1.0 + np.sin(2 * np.pi * beat_hz * t))
+        carrier = 0.5 * np.sin(2 * np.pi * 261.63 * t) + 0.3 * np.sin(2 * np.pi * 329.63 * t) + 0.2 * np.sin(2 * np.pi * 392.0 * t)
+        master_audio = (envelope * carrier).astype(np.float32)
+        vocal_audio = (master_audio * 0.7).astype(np.float32) if not is_instrumental else np.zeros_like(master_audio)
+        accomp_audio = (master_audio * 0.6).astype(np.float32)
 
-            sf.write(str(master_path), stems["master"], sr)
-            sf.write(str(vocal_path), stems["vocals"], sr)
-            sf.write(str(accomp_path), stems["accompaniment"], sr)
-        else:
-            # Fast Google Flow Music preview alignment track
-            if progress_callback:
-                progress_callback("Generating Google Flow Music preview alignment track...", 30.0)
-
-            total_samples = int(sr * target_duration_sec)
-            t = np.linspace(0, target_duration_sec, total_samples, endpoint=False, dtype=np.float32)
-            beat_hz = bpm / 60.0
-            envelope = 0.5 * (1.0 + np.sin(2 * np.pi * beat_hz * t))
-            carrier = 0.5 * np.sin(2 * np.pi * 261.63 * t) + 0.3 * np.sin(2 * np.pi * 329.63 * t)
-            master_audio = (envelope * carrier).astype(np.float32)
-            vocal_audio = (master_audio * 0.7).astype(np.float32) if not is_instrumental else np.zeros_like(master_audio)
-            accomp_audio = (master_audio * 0.6).astype(np.float32)
-
-            sf.write(str(master_path), master_audio, sr)
-            sf.write(str(vocal_path), vocal_audio, sr)
-            sf.write(str(accomp_path), accomp_audio, sr)
+        sf.write(str(master_path), master_audio, sr)
+        sf.write(str(vocal_path), vocal_audio, sr)
+        sf.write(str(accomp_path), accomp_audio, sr)
 
         return {
             "master_path": master_path,

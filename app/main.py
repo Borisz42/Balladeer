@@ -29,11 +29,10 @@ async def lifespan(app: FastAPI):
     logger.info("   Balladeer Server Initialized (Ready on http://localhost:8000)")
     logger.info("================================================================")
     
-    # Asynchronously pre-warm local AI engine in background if in local mode
-    if settings.google_ai.only_local_ai:
-        import asyncio
-        from app.models.qwen_llm import qwen_llm
-        asyncio.create_task(qwen_llm.prewarm_async())
+    # Asynchronously pre-warm local AI engine in background
+    import asyncio
+    from app.models.qwen_llm import qwen_llm
+    asyncio.create_task(qwen_llm.prewarm_async())
 
     yield
     # Graceful Shutdown on Ctrl+C or /api/system/shutdown

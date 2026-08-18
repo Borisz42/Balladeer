@@ -64,18 +64,6 @@ def get_models_status() -> Dict[str, Any]:
                     is_cached = True
                     cached_path = str(p)
                     break
-        elif key == "minimax-music3":
-            cmf_file = local_weights_dir / "minimax-music3" / "minimax-music3-q4tp.cmf"
-            mm_dir = local_weights_dir / "minimax-music3"
-            if cmf_file.exists():
-                is_cached = True
-                cached_path = str(cmf_file)
-            elif mm_dir.exists() and any(mm_dir.glob("*.cmf")):
-                is_cached = True
-                cached_path = str(list(mm_dir.glob("*.cmf"))[0])
-            elif mm_dir.exists() and any(mm_dir.glob("*.safetensors")):
-                is_cached = True
-                cached_path = str(list(mm_dir.glob("*.safetensors"))[0])
         else:
             repo_slug = "models--" + info["repo_id"].replace("/", "--")
             hf_cand = hf_hub_dir / repo_slug
@@ -84,11 +72,7 @@ def get_models_status() -> Dict[str, Any]:
                 is_cached = True
                 cached_path = str(hf_cand if hf_cand.exists() else local_cand)
 
-        exec_mode = (
-            "ComfyUI CMF Staged (Local ~6GB)" if (key == "minimax-music3" and is_cached)
-            else "Local Checkpoint Staged" if is_cached
-            else "Hugging Face Free API / Fallback Synthesizer"
-        )
+        exec_mode = "Local GPU Checkpoint Staged" if is_cached else "Available via HuggingFace Hub"
 
         status[key] = {
             "name": key,
