@@ -2,13 +2,13 @@
 
 > **Engine:** Balladeer: Hybrid Cloud-Local AI Beat-Synced Video Montage Engine  
 > **Environment:** Windows 11 (PowerShell), NVIDIA GeForce RTX 3070 (Vulkan / CUDA / NVENC), Python 3.11  
-> **Test Suite:** 33 / 33 automated tests passing (100% pass rate)
+> **Test Suite:** 50 / 50 automated tests passing (100% pass rate)
 
 ---
 
 ## 1. Executive Summary
 
-Balladeer is a high-performance hybrid AI video montage engine that transforms travel photos, video clips, and structured trip diaries into beat-synchronized cinematic music videos. The system combines an asynchronous 2-step media ingestion process with a multi-tier Google AI Studio model priority waterfall, offline GPU inference (`Qwen3.5-4B` and `Qwen3.5-9B` VLM on RTX 3070), date-aware multi-modal indexing, AI travel diary re-phrasing, real-time asset inspection & editing, and Google Flow Music prompt optimization.
+Balladeer is a high-performance hybrid AI video montage engine that transforms travel photos, video clips, and structured trip diaries into beat-synchronized cinematic music videos. The system combines an asynchronous 2-step media ingestion process with a multi-tier Google AI Studio model priority waterfall, offline GPU inference (`Qwen3.5-4B` and `Qwen3.5-9B` VLM on RTX 3070), EXIF orientation transposition, dynamic media preview sizing, responsive multi-column gallery tiling, date-aware multi-modal indexing, AI travel diary re-phrasing, real-time asset inspection & editing, and Google Flow Music prompt optimization.
 
 ---
 
@@ -17,9 +17,13 @@ Balladeer is a high-performance hybrid AI video montage engine that transforms t
 ### Phase 1: 2-Step Media Ingestion & Model Priority Waterfall
 * **Step 1: Rapid Media Staging (`stage_media_files`):**
   * Parses basic EXIF timestamps, video durations, GPS coordinates, and dimensions immediately upon upload/folder selection.
-  * Generates and serves fast JPEG thumbnails (`/api/projects/{id}/assets/{asset_id}/thumbnail`).
+  * Generates fast JPEG thumbnails (`/api/projects/{id}/assets/{asset_id}/thumbnail`) with automatic **EXIF orientation transposition** (`ImageOps.exif_transpose`), ensuring camera/smartphone portrait photos render upright.
+  * Accurately extracts orientation-corrected dimensions (`width`, `height`).
   * Automatically matches photo/video capture timestamps against structured itinerary dates, tagging assets with `day:Day X` and `date:YYYY-MM-DD`.
   * Displays assets immediately in the UI marked as unindexed without blocking on model inference.
+* **Responsive Source Media Gallery (`AssetGallery.jsx`):**
+  * Uses auto-filling dynamic grid tiling (`grid-cols-[repeat(auto-fill,minmax(110px,1fr))]`) automatically rendering 4, 5, 6, or more columns on wide displays and adapting cleanly to smaller widths.
+  * Standardized `aspect-[4/3]` thumbnail cards with smooth hover zoom animations.
 * **Step 2: Batch AI Vision Indexing (`index_pending_assets`):**
   * Initiated via the **"Index Media"** UI button or API endpoint.
   * Uses the **Intelligent Multi-Tier Model Dispatcher (`IntelligentModelRouter`)** to distribute batches across Google AI Studio free tier quotas with automatic fallback:
@@ -102,38 +106,48 @@ python -m pytest tests -v
 ```
 
 ```
-============================== 33 passed in 37.54s ==============================
-tests/test_aligner.py::test_beat_snapping PASSED                         [  3%]
-tests/test_aligner.py::test_music_synthesis_and_beat_extraction PASSED   [  6%]
-tests/test_api.py::test_health_endpoint PASSED                           [  9%]
-tests/test_api.py::test_project_api_lifecycle PASSED                     [ 12%]
-tests/test_aspect_ratio_and_instrumental.py::test_instrumental_event_cards_subtitles PASSED [ 15%]
-tests/test_aspect_ratio_and_instrumental.py::test_vertical_aspect_ratio_processing PASSED [ 18%]
-tests/test_batch_indexer.py::test_parallel_batch_indexing PASSED         [ 21%]
-tests/test_batch_indexer.py::test_two_step_media_indexing_and_user_editing PASSED [ 24%]
-tests/test_beat_solver.py::test_beat_solver_config_ranges PASSED         [ 27%]
-tests/test_comfy_worker.py::test_comfy_worker_build_prompt_graph PASSED  [ 30%]
-tests/test_comfy_worker.py::test_comfy_worker_fallback_when_offline PASSED [ 33%]
-tests/test_comfy_worker.py::test_minimax_engine_with_comfy_audio PASSED  [ 36%]
-tests/test_comfy_worker.py::test_minimax_engine_with_cmf_runner_audio PASSED [ 39%]
-tests/test_comfy_worker.py::test_minimax_engine_strict_error_when_all_offline PASSED [ 42%]
-tests/test_compositor.py::test_ass_karaoke_subtitle_generation PASSED    [ 45%]
-tests/test_compositor.py::test_blurred_background_fill PASSED            [ 48%]
-tests/test_config.py::test_config_defaults PASSED                        [ 51%]
-tests/test_database.py::test_database_lifecycle PASSED                   [ 54%]
-tests/test_diary_and_rephrase.py::test_structured_diary_creation_and_sync PASSED [ 57%]
-tests/test_diary_and_rephrase.py::test_diary_ai_rephraser_spell_correction PASSED [ 60%]
-tests/test_local_ai_and_video_vision.py::test_local_ai_photo_vision_semantic_quality PASSED [ 63%]
-tests/test_local_ai_and_video_vision.py::test_local_ai_video_indexing_and_subsegments PASSED [ 66%]
-tests/test_model_router.py::test_model_quota_sliding_window PASSED       [ 69%]
-tests/test_model_router.py::test_model_router_waterfall_fallback PASSED  [ 72%]
-tests/test_model_router.py::test_model_router_only_local_ai_mode PASSED  [ 75%]
-tests/test_model_wrappers.py::test_qwen_vlm_heuristic PASSED             [ 78%]
-tests/test_model_wrappers.py::test_minimax_music_engine PASSED           [ 81%]
-tests/test_model_wrappers.py::test_mms_aligner PASSED                    [ 84%]
-tests/test_models_api.py::test_models_status_api PASSED                  [ 87%]
-tests/test_models_api.py::test_model_download_trigger_api PASSED         [ 90%]
-tests/test_settings_api.py::test_settings_api_lifecycle PASSED           [ 93%]
-tests/test_split_and_reorder.py::test_split_and_reorder_api PASSED       [ 96%]
-tests/test_system_api.py::test_shutdown_endpoint PASSED                  [100%]
+============================== 50 passed in 29.39s ==============================
+tests/test_aligner.py::test_beat_snapping PASSED                         [  2%]
+tests/test_aligner.py::test_music_synthesis_and_beat_extraction PASSED   [  4%]
+tests/test_api.py::test_health_endpoint PASSED                           [  6%]
+tests/test_api.py::test_project_api_lifecycle PASSED                     [  8%]
+tests/test_aspect_ratio_and_instrumental.py::test_instrumental_event_cards_subtitles PASSED [ 10%]
+tests/test_aspect_ratio_and_instrumental.py::test_vertical_aspect_ratio_processing PASSED [ 12%]
+tests/test_aspect_ratio_and_instrumental.py::test_thumbnail_exif_orientation_handling PASSED [ 14%]
+tests/test_auto_draft_and_approval.py::test_auto_draft_approval_workflow PASSED [ 16%]
+tests/test_auto_draft_and_approval.py::test_defer_relevance_until_approved PASSED [ 18%]
+tests/test_batch_indexer.py::test_parallel_batch_indexing PASSED         [ 20%]
+tests/test_batch_indexer.py::test_two_step_media_indexing_and_user_editing PASSED [ 22%]
+tests/test_beat_solver.py::test_beat_solver_config_ranges PASSED         [ 24%]
+tests/test_comfy_worker.py::test_comfy_worker_build_prompt_graph PASSED  [ 26%]
+tests/test_comfy_worker.py::test_comfy_worker_fallback_when_offline PASSED [ 28%]
+tests/test_comfy_worker.py::test_minimax_engine_with_comfy_audio PASSED  [ 30%]
+tests/test_comfy_worker.py::test_minimax_engine_with_cmf_runner_audio PASSED [ 32%]
+tests/test_comfy_worker.py::test_minimax_engine_strict_error_when_all_offline PASSED [ 34%]
+tests/test_compositor.py::test_ass_karaoke_subtitle_generation PASSED    [ 36%]
+tests/test_compositor.py::test_blurred_background_fill PASSED            [ 38%]
+tests/test_config.py::test_config_defaults PASSED                        [ 40%]
+tests/test_database.py::test_database_lifecycle PASSED                   [ 42%]
+tests/test_diary_and_rephrase.py::test_structured_diary_creation_and_sync PASSED [ 44%]
+tests/test_diary_and_rephrase.py::test_diary_ai_rephraser_spell_correction PASSED [ 46%]
+tests/test_hardware.py::test_gpu_memory_and_hardware_detection PASSED   [ 48%]
+tests/test_local_ai_and_video_vision.py::test_local_ai_photo_vision_semantic_quality PASSED [ 50%]
+tests/test_local_ai_and_video_vision.py::test_local_ai_video_indexing_and_subsegments PASSED [ 52%]
+tests/test_model_router.py::test_model_quota_sliding_window PASSED       [ 54%]
+tests/test_model_router.py::test_model_router_waterfall_fallback PASSED  [ 56%]
+tests/test_model_router.py::test_model_router_only_local_ai_mode PASSED  [ 58%]
+tests/test_model_wrappers.py::test_qwen_vlm_heuristic PASSED             [ 60%]
+tests/test_model_wrappers.py::test_qwen_vlm_markdown_fenced_json PASSED  [ 62%]
+tests/test_model_wrappers.py::test_qwen_vlm_malformed_fence_fallback PASSED [ 64%]
+tests/test_model_wrappers.py::test_minimax_music_engine PASSED           [ 66%]
+tests/test_model_wrappers.py::test_mms_aligner PASSED                    [ 68%]
+tests/test_models_api.py::test_models_status_api PASSED                  [ 70%]
+tests/test_models_api.py::test_model_download_trigger_api PASSED         [ 72%]
+tests/test_settings_api.py::test_settings_api_lifecycle PASSED           [ 74%]
+tests/test_split_and_reorder.py::test_split_and_reorder_api PASSED       [ 76%]
+tests/test_system_api.py::test_shutdown_endpoint PASSED                  [ 78%]
+tests/test_upload_video_foreign_key.py::test_video_indexing_foreign_key_integrity PASSED [ 80%]
+tests/test_video_segments.py::test_video_subsegments_extraction PASSED   [ 82%]
+tests/test_video_segments.py::test_ffmpeg_1fps_video_extraction PASSED   [ 84%]
+tests/test_video_segments.py::test_video_segments_and_frame_scores_api PASSED [ 86%]
 ```

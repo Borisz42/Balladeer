@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union, Tuple
 import torch
-from PIL import Image, ImageStat
+from PIL import Image, ImageOps, ImageStat
 from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
 
@@ -381,8 +381,75 @@ class QwenVLMRunner:
     ) -> Dict[str, Any]:
         """Single-item description entry point."""
         p = Path(file_path)
-        target_img_path = self._extract_video_thumb(p)
-        img_rgb = self._prepare_image(target_img_path, preloaded_image=preloaded_image)
+        if filename is None:
+            filename = p.name
+
+        # If a video path is passed, extract a representative frame for visual analysis
+        video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+        target_image_path = p
+        if p.suffix.lower() in video_exts and p.exists() and preloaded_image is None:
+            import tempfile, subprocess
+            temp_thumb = Path(tempfile.gettempdir()) / f"vlm_frame_{p.stem}_{int(p.stat().st_mtime)}.jpg"
+            try:
+                cmd = ["ffmpeg", "-y", "-ss", "0.5", "-i", str(p), "-vframes", "1", "-vf", "scale='min(600,iw)':-1", "-q:v", "2", str(temp_thumb)]
+                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+                if not temp_thumb.exists() or temp_thumb.stat().st_size == 0:
+                    cmd_zero = ["ffmpeg", "-y", "-ss", "0", "-i", str(p), "-vframes", "1", "-vf", "scale='min(600,iw)':-1", "-q:v", "2", str(temp_thumb)]
+                    subprocess.run(cmd_zero, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+
+                if temp_thumb.exists() and temp_thumb.stat().st_size > 0:
+                    target_image_path = temp_thumb
+            except Exception as e:
+                logger.debug(f"Frame extraction note for VLM: {e}")
+
+        # Compute dynamic image stats for photographic scoring
+        quality = 7.0
+        w, h = 1920, 1080
+        img_rgb = None
+
+        try:
+            if preloaded_image is not None:
+                img_copy = ImageOps.exif_transpose(preloaded_image) or preloaded_image.copy()
+            else:
+                raw_img = Image.open(target_image_path)
+                img_copy = ImageOps.exif_transpose(raw_img) or raw_img
+            
+            with img_copy as img:
+                w, h = img.size
+                stat = ImageStat.Stat(img.convert("L"))
+                mean_b = stat.mean[0]
+                std_b = stat.stddev[0]
+                
+                # Dynamic contrast and sharpness metric
+                h_score = 6.0
+                if std_b > 60:
+                    h_score += 1.3
+                elif std_b > 40:
+                    h_score += 0.8
+                elif std_b < 20:
+                    h_score -= 1.2
+
+                # Exposure balance
+                if 75 <= mean_b <= 175:
+                    h_score += 0.9
+                elif mean_b < 35 or mean_b > 225:
+                    h_score -= 1.3
+
+                # Resolution scale
+                if max(w, h) >= 3000:
+                    h_score += 0.8
+                elif max(w, h) >= 1920:
+                    h_score += 0.5
+
+                quality = round(max(1.0, min(10.0, h_score)), 1)
+
+                # High-quality 512x512 bounding resolution for full GPU vision throughput
+                img_rgb = img.convert("RGB")
+                img_rgb.thumbnail((512, 512), Image.Resampling.LANCZOS)
+        except Exception as e:
+            logger.debug(f"Image preprocessing note: {e}")
+
+        quality = round(max(1.0, min(10.0, quality)), 1)
         stem = p.stem.lower().replace("_", " ").replace("-", " ")
         clean_name = stem.capitalize() if not re.match(r"^\d+$", stem) else "Travel scene"
         default_caption = f"Travel scene: {clean_name}"

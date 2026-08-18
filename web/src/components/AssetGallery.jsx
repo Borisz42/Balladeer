@@ -181,7 +181,7 @@ export default function AssetGallery({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2">
             {safeAssets.map((asset) => {
               if (!asset) return null;
               const isVideo = asset.media_type === 'video';
@@ -208,7 +208,7 @@ export default function AssetGallery({
                   }`}
                 >
                   {/* Media Preview Thumbnail */}
-                  <div className="h-20 w-full bg-slate-950 relative flex items-center justify-center overflow-hidden">
+                  <div className="aspect-[4/3] w-full bg-slate-950 relative flex items-center justify-center overflow-hidden">
                     <img
                       src={thumbUrl}
                       alt={titleText}

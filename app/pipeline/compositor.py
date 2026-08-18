@@ -5,7 +5,7 @@ import logging
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 
 from app.core.config import get_settings
 from app.database.models import (
@@ -120,6 +120,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         try:
             with Image.open(image_path) as src_img:
+                src_img = ImageOps.exif_transpose(src_img) or src_img
                 src_img = src_img.convert("RGB")
                 src_w, src_h = src_img.size
 

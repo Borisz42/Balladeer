@@ -366,31 +366,39 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
           {/* Left: Media Preview, Interactive Timeline Graph & Technical Stats */}
           <div className="lg:col-span-6 flex flex-col space-y-4">
             {/* Video or Image Preview */}
-            <div className="w-full h-64 sm:h-72 bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center relative">
-              {isVideo ? (
-                <video
-                  ref={videoRef}
-                  controls
-                  className="w-full h-full object-contain"
-                  src={fileUrl}
-                  poster={thumbUrl}
-                  onTimeUpdate={handleTimeUpdate}
-                  onSeeking={handleTimeUpdate}
-                  onSeeked={handleTimeUpdate}
-                />
-              ) : (
-                <img
-                  src={fileUrl}
-                  alt={caption || assetTitle}
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    e.target.src = thumbUrl;
-                  }}
-                />
-              )}
-              
-              <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-mono text-slate-300 uppercase">
-                {asset.media_type} {asset.width && asset.height ? `• ${asset.width}x${asset.height}` : ''}
+            <div className="w-full flex justify-center items-center rounded-xl overflow-hidden bg-slate-950/60 border border-slate-800 relative min-h-[260px] max-h-[50vh] p-1 group">
+              {/* Ambient Glow */}
+              <div
+                className="absolute inset-0 opacity-20 blur-2xl scale-125 pointer-events-none bg-cover bg-center transition-all duration-700"
+                style={{ backgroundImage: `url(${thumbUrl})` }}
+              />
+
+              <div className="relative z-10 flex items-center justify-center max-h-[46vh] max-w-full">
+                {isVideo ? (
+                  <video
+                    ref={videoRef}
+                    controls
+                    className="max-h-[46vh] max-w-full w-auto h-auto object-contain rounded-lg shadow-xl"
+                    src={fileUrl}
+                    poster={thumbUrl}
+                    onTimeUpdate={handleTimeUpdate}
+                    onSeeking={handleTimeUpdate}
+                    onSeeked={handleTimeUpdate}
+                  />
+                ) : (
+                  <img
+                    src={fileUrl}
+                    alt={caption || assetTitle}
+                    className="max-h-[46vh] max-w-full w-auto h-auto object-contain rounded-lg shadow-xl transition-all"
+                    onError={(e) => {
+                      e.target.src = thumbUrl;
+                    }}
+                  />
+                )}
+                
+                <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/75 backdrop-blur-sm text-[10px] font-mono text-slate-300 uppercase shadow pointer-events-none">
+                  {asset.media_type} {asset.width && asset.height ? `• ${asset.width}x${asset.height}` : ''}
+                </div>
               </div>
             </div>
 
