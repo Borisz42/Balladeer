@@ -76,6 +76,13 @@ export default function App() {
 
   useEffect(() => {
     loadHealthAndProjects();
+    const interval = setInterval(async () => {
+      try {
+        const hData = await fetchHealth();
+        setHealth(hData);
+      } catch (e) {}
+    }, 2500);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {

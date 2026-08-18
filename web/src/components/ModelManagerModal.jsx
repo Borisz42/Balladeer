@@ -191,66 +191,52 @@ export default function ModelManagerModal({ isOpen, onClose }) {
           </button>
         </div>
 
-        {/* Local Model Selector */}
+        {/* Dedicated Local AI Pipeline Architecture */}
         <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 mb-5">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
+              <Sparkles className="w-4 h-4 text-teal-400" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                Local AI Model Selector (Qwen 3.5 GGUF + MMProj)
+                Dedicated Local AI Pipeline Roles (Zero Bottlenecks)
               </h3>
             </div>
-            <span className="text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded">
-              Active: {settingsData?.local_model || 'qwen3.5-4b'}
+            <span className="text-[10px] font-mono bg-teal-500/10 text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded">
+              Active VLM: Qwen 2.5 VL (3B)
             </span>
           </div>
           <p className="text-xs text-slate-400 mb-3">
-            Select the local vision-language model used when offline or in Local-Only mode. Both run locally on your GPU.
+            Hardware-optimized pipeline automatically dispatches models to specialized tasks for maximum throughput on your 8GB GPU:
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              onClick={async () => {
-                const updated = await updateSystemSettings({ local_model: 'qwen3.5-4b' });
-                setSettingsData(updated);
-                setStatusMessage('Active Local Model set to Qwen 3.5 4B.');
-                setTimeout(() => setStatusMessage(null), 3000);
-              }}
-              className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
-                (settingsData?.local_model || 'qwen3.5-4b') === 'qwen3.5-4b'
-                  ? 'bg-amber-500/10 border-amber-500/50 text-white'
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-              }`}
-            >
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 rounded-xl border bg-slate-900 border-teal-500/30 text-slate-300">
               <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-xs">Qwen 3.5 4B (Q4_K_M)</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 font-mono">~2.8 GB VRAM</span>
+                <span className="font-bold text-xs text-teal-300">Qwen 2.5 VL 3B</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-mono">Vision</span>
               </div>
-              <p className="text-[11px] opacity-80">
-                Lightweight, fast multimodal captioning & quality scoring. Recommended for 8GB GPUs.
+              <p className="text-[11px] text-slate-400">
+                Ultra-fast 256x256 batched vision captioning (~0.5s/item).
               </p>
-            </button>
+            </div>
 
-            <button
-              onClick={async () => {
-                const updated = await updateSystemSettings({ local_model: 'qwen3.5-9b' });
-                setSettingsData(updated);
-                setStatusMessage('Active Local Model set to Qwen 3.5 9B.');
-                setTimeout(() => setStatusMessage(null), 3000);
-              }}
-              className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
-                settingsData?.local_model === 'qwen3.5-9b'
-                  ? 'bg-amber-500/10 border-amber-500/50 text-white'
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-              }`}
-            >
+            <div className="p-3 rounded-xl border bg-slate-900 border-cyan-500/30 text-slate-300">
               <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-xs">Qwen 3.5 9B (Q4_K_M)</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 font-mono">~5.8 GB VRAM</span>
+                <span className="font-bold text-xs text-cyan-300">SigLIP 2 (FP16)</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Aesthetics</span>
               </div>
-              <p className="text-[11px] opacity-80">
-                High-capacity multimodal reasoning & nuanced lyrical analysis. Fits RTX 3070 8GB VRAM.
+              <p className="text-[11px] text-slate-400">
+                Pure zero-shot photographic aesthetic scoring & 768-dim embeddings.
               </p>
-            </button>
+            </div>
+
+            <div className="p-3 rounded-xl border bg-slate-900 border-purple-500/30 text-slate-300">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-xs text-purple-300">Qwen 3.5 9B</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono">Text / Music</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                High-capacity reasoning for diary drafting and music prompts.
+              </p>
+            </div>
           </div>
         </div>
 

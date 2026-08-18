@@ -168,8 +168,13 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
         bodyColor: '#cbd5e1',
         borderColor: '#334155',
         borderWidth: 1,
+<<<<<<< HEAD
         titleFont: { size: 10, family: 'monospace' },
         bodyFont: { size: 9, family: 'monospace' }
+=======
+        titleFont: { size: 11, family: 'monospace' },
+        bodyFont: { size: 10, family: 'monospace' }
+>>>>>>> 30b8fb5 (feat: optimize local AI indexer performance, batch size 8 for 8GB VRAM, pure SigLIP aesthetic scoring, global cache, and UI loading indicators)
       }
     },
     scales: {

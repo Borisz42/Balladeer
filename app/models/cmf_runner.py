@@ -26,10 +26,28 @@ class CMFNativeRunner:
         path_tool = shutil.which("cortiq.exe") or shutil.which("cortiq")
         return Path(path_tool) if path_tool else None
 
+    def get_cmf_pkg(self) -> Optional[Path]:
+        hf_hub_dir = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface" / "hub"))
+        candidates = [
+            hf_hub_dir / "minimax-music3" / self.settings.audio.cmf_filename,
+            hf_hub_dir / "minimax-music3" / "minimax-music3-q4tp.cmf",
+            self.settings.data_dir / "weights" / "minimax-music3" / self.settings.audio.cmf_filename,
+        ]
+        for c in candidates:
+            if c.exists():
+                return c
+        # Check any .cmf in minimax-music3 dir
+        for base in [hf_hub_dir / "minimax-music3", self.settings.data_dir / "weights" / "minimax-music3"]:
+            if base.exists():
+                cmfs = list(base.glob("*.cmf"))
+                if cmfs:
+                    return cmfs[0]
+        return None
+
     def is_available(self) -> bool:
         cortiq_exe = self.get_cortiq_exe()
-        cmf_pkg = self.settings.data_dir / "weights" / "minimax-music3" / self.settings.audio.cmf_filename
-        return cortiq_exe is not None and cortiq_exe.exists() and cmf_pkg.exists()
+        cmf_pkg = self.get_cmf_pkg()
+        return cortiq_exe is not None and cortiq_exe.exists() and cmf_pkg is not None
 
     def generate_music(
         self,
@@ -46,12 +64,11 @@ class CMFNativeRunner:
         Executes cortiq.exe subprocess to synthesize MiniMax Music 3 audio.
         """
         duration = duration_sec if duration_sec is not None else target_duration_sec
-        if not self.is_available():
+        cmf_pkg = self.get_cmf_pkg()
+        cortiq_exe = self.get_cortiq_exe()
+        if not cortiq_exe or not cmf_pkg:
             logger.debug("CMF Native runner weights or binary not present.")
             return None
-
-        cortiq_exe = self.get_cortiq_exe()
-        cmf_pkg = self.settings.data_dir / "weights" / "minimax-music3" / self.settings.audio.cmf_filename
         out_wav = self.settings.data_dir / "output" / "temp_cmf_out.wav"
         out_wav.parent.mkdir(parents=True, exist_ok=True)
 

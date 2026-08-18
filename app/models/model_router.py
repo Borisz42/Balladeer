@@ -104,7 +104,9 @@ class IntelligentModelRouter:
             "gemini-3.5-flash":      ModelQuota("gemini-3.5-flash",      rpm_limit=5,  tpm_limit=250_000, rpd_limit=20),
             "gemma-4-31b":           ModelQuota("gemma-4-31b",           rpm_limit=30, tpm_limit=16_000,  rpd_limit=14_400),
             "gemma-4-26b":           ModelQuota("gemma-4-26b",           rpm_limit=30, tpm_limit=16_000,  rpd_limit=14_400),
+            "local-qwen2.5-vl-3b":   ModelQuota("local-qwen2.5-vl-3b",   rpm_limit=999, tpm_limit=999_999, rpd_limit=999_999, is_local=True),
             "local-qwen3.5-4b":      ModelQuota("local-qwen3.5-4b",      rpm_limit=999, tpm_limit=999_999, rpd_limit=999_999, is_local=True),
+            "local-qwen3.5-9b":      ModelQuota("local-qwen3.5-9b",      rpm_limit=999, tpm_limit=999_999, rpd_limit=999_999, is_local=True),
         }
 
         self.waterfalls = {
@@ -115,7 +117,7 @@ class IntelligentModelRouter:
                 "gemini-3.5-flash",
                 "gemini-3.7-flash",
                 "gemma-4-31b",
-                "local-qwen3.5-4b",
+                "local-qwen2.5-vl-3b",
             ],
             TaskType.STORY_LYRICS: [
                 "gemini-3.5-flash-lite",
@@ -124,7 +126,7 @@ class IntelligentModelRouter:
                 "gemini-3.7-flash",
                 "gemma-4-31b",
                 "gemma-4-26b",
-                "local-qwen3.5-4b",
+                "local-qwen3.5-9b",
             ],
         }
 
@@ -161,7 +163,7 @@ class IntelligentModelRouter:
         api_key = settings.google_ai.api_key.strip()
         only_local = settings.google_ai.only_local_ai or not api_key
 
-        active_local_slug = f"local-{settings.indexing.local_model}"
+        active_local_slug = "local-qwen2.5-vl-3b" if task_type == TaskType.VISION_BATCH else "local-qwen3.5-9b"
 
         if only_local or cloud_caller is None:
             logger.info(f"[Router] [{task_type.value}] Only-Local mode active (only_local_ai={only_local}). Routing directly to {active_local_slug} engine.")

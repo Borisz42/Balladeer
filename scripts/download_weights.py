@@ -141,7 +141,8 @@ def main():
         choices=list(MODELS_INFO.keys()) + ["all"],
         help="Models to download"
     )
-    parser.add_argument("--dest-dir", default="data/weights", help="Directory for model weights")
+    hf_hub_dir = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface" / "hub"))
+    parser.add_argument("--dest-dir", default=str(hf_hub_dir), help="Directory for model weights (default: ~/.cache/huggingface/hub)")
     parser.add_argument("--token", default=None, help="Hugging Face API Access Token")
     parser.add_argument("--verify-only", action="store_true", help="Only verify existing cached weights")
 

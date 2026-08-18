@@ -1,7 +1,7 @@
 import gc
 import logging
 from contextlib import contextmanager
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import torch
 
 logger = logging.getLogger(__name__)
@@ -17,10 +17,36 @@ class GPUMemoryManager:
         self.max_vram_gb = max_vram_gb
         self.device = torch.device(self.device_str)
         self._current_phase: Optional[str] = None
+        self._loading_model: Optional[str] = None
+        self._loaded_models: Dict[str, str] = {}
 
     @property
     def is_cuda(self) -> bool:
         return self.device.type == "cuda"
+
+    @property
+    def loading_model(self) -> Optional[str]:
+        return self._loading_model
+
+    @property
+    def loaded_models(self) -> List[str]:
+        return list(self._loaded_models.values())
+
+    def set_loading(self, model_name: Optional[str]) -> None:
+        self._loading_model = model_name
+        if model_name:
+            logger.info(f"[GPU-Status] ⏳ Loading model into GPU: {model_name}...")
+        else:
+            logger.debug("[GPU-Status] Model loading state cleared.")
+
+    def set_loaded(self, key: str, display_name: str) -> None:
+        self._loaded_models[key] = display_name
+        self._loading_model = None
+        logger.info(f"[GPU-Status] ✓ Model loaded in VRAM: {display_name}")
+
+    def remove_loaded(self, key: str) -> None:
+        if key in self._loaded_models:
+            del self._loaded_models[key]
 
     def get_vram_usage(self) -> Dict[str, float]:
         """Returns allocated, reserved, and total VRAM in GB."""

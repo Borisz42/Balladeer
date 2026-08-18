@@ -838,7 +838,7 @@ class MediaIndexer:
         project = db.get_project(project_id)
         diary_days = (project.config_override or {}).get("diary_days", []) if project else []
 
-        chunk_size = batch_size or settings.google_ai.batch_size or 20
+        chunk_size = batch_size or getattr(settings.indexing, "batch_size", 8) or 8
         total_count = len(target_assets)
         processed_count = 0
         indexed_results: List[MediaAssetModel] = []
@@ -884,7 +884,7 @@ class MediaIndexer:
                 for idx, asset in enumerate(chunk)
             ]
 
-            est_tokens = len(visual_paths) * 600
+            est_tokens = len(visual_paths) * 200
 
             import time
             t0 = time.perf_counter()
@@ -903,6 +903,10 @@ class MediaIndexer:
 
             logger.info(f"[Indexer] Indexed batch {chunk_idx+1}/{len(chunks)} ({len(chunk)} media items) using: {model_used} in {elapsed_sec:.2f}s (avg {avg_per_item:.2f}s/item)")
 
+            # Batch compute SigLIP 2 zero-shot aesthetic scores for full chunk
+            chunk_images = [visual_paths[i] if visual_paths[i].exists() else Path(chunk[i].file_path) for i in range(len(chunk))]
+            aesthetic_scores = siglip_embedder.compute_aesthetic_scores_batch(chunk_images)
+
             for idx, asset in enumerate(chunk):
                 p = Path(asset.file_path)
                 analysis = vlm_results[idx] if idx < len(vlm_results) else {
@@ -911,13 +915,11 @@ class MediaIndexer:
                     "quality_score": 7.0
                 }
                 
-                # Compute SigLIP 2 embedding for the asset (once)
+                # Compute SigLIP 2 embedding for the asset
                 emb = self.generate_siglip_embedding(visual_paths[idx] if visual_paths[idx].exists() else analysis["caption"])
 
-                # Compute local SigLIP 2 zero-shot aesthetic score & blend with VLM score
-                siglip_score = siglip_embedder.compute_aesthetic_score(visual_paths[idx] if visual_paths[idx].exists() else p)
-                vlm_score = float(analysis.get("quality_score", 7.0))
-                combined_quality = round(max(1.0, min(10.0, 0.5 * siglip_score + 0.5 * vlm_score)), 1)
+                # Exclusively use SigLIP 2 zero-shot semantic aesthetic score
+                siglip_quality = aesthetic_scores[idx] if idx < len(aesthetic_scores) else siglip_embedder.compute_aesthetic_score(chunk_images[idx])
 
                 if log_ready:
                     matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
@@ -947,7 +949,7 @@ class MediaIndexer:
                 updated = db.update_media_asset(asset.id, {
                     "caption": analysis["caption"],
                     "tags": analysis["tags"],
-                    "quality_score": combined_quality,
+                    "quality_score": siglip_quality,
                     "relevance_score_daily": rel_daily,
                     "relevance_score_overall": rel_overall,
                     "embedding": emb,
@@ -1013,20 +1015,18 @@ class MediaIndexer:
         vlm_results, model_used = await model_router.execute_task(
             task_type=TaskType.VISION_BATCH,
             prompt_payload=prompt_payload,
-            estimated_tokens=600,
+            estimated_tokens=200,
             cloud_caller=gemini_client.analyze_image_batch,
             local_fallback=qwen_vlm.describe_and_score_batch
         )
         analysis = vlm_results[0] if vlm_results else {
             "caption": f"Scene: {p.stem}",
             "tags": ["travel"],
-            "quality_score": 7.5
+            "quality_score": 7.0
         }
         emb = self.generate_siglip_embedding(visual_path if visual_path.exists() else analysis["caption"])
 
         siglip_score = siglip_embedder.compute_aesthetic_score(visual_path if visual_path.exists() else p)
-        vlm_score = float(analysis.get("quality_score", 7.0))
-        combined_quality = round(max(1.0, min(10.0, 0.5 * siglip_score + 0.5 * vlm_score)), 1)
 
         if log_ready:
             rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else 0.65
@@ -1049,7 +1049,7 @@ class MediaIndexer:
         return db.update_media_asset(asset.id, {
             "caption": analysis["caption"],
             "tags": analysis["tags"],
-            "quality_score": combined_quality,
+            "quality_score": siglip_score,
             "relevance_score_daily": rel_daily,
             "relevance_score_overall": rel_overall,
             "embedding": emb,
@@ -1066,8 +1066,6 @@ class MediaIndexer:
         emb = self.generate_siglip_embedding(vlm_res["caption"])
 
         siglip_score = siglip_embedder.compute_aesthetic_score(file_path)
-        vlm_score = float(vlm_res.get("quality_score", 7.0))
-        combined_quality = round(max(1.0, min(10.0, 0.5 * siglip_score + 0.5 * vlm_score)), 1)
 
         log_ready = self.is_travel_log_ready(project_id)
         if log_ready:
@@ -1085,16 +1083,15 @@ class MediaIndexer:
             if segs and log_ready:
                 rel_daily = round(float(np.mean([s.relevance_score for s in segs])), 3)
 
-        target_model = getattr(self.settings.indexing, "local_model", "qwen3.5-4b") or "qwen3.5-4b"
         return db.update_media_asset(asset.id, {
             "caption": vlm_res["caption"],
             "tags": vlm_res["tags"],
-            "quality_score": combined_quality,
+            "quality_score": siglip_score,
             "relevance_score_daily": rel_daily,
             "relevance_score_overall": rel_overall,
             "embedding": emb,
             "is_indexed": True,
-            "indexed_by_model": f"local-{target_model}"
+            "indexed_by_model": "local-qwen2.5-vl-3b"
         })
 
     def compute_project_relevance_scores(self, project_id: str) -> Dict[str, Any]:

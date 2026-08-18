@@ -65,6 +65,8 @@ def health_check():
         "cuda_available": memory_manager.is_cuda,
         "device": str(memory_manager.device),
         "vram_stats": vram,
+        "loading_model": memory_manager.loading_model,
+        "loaded_models": memory_manager.loaded_models,
         "comfy_online": comfy_music_worker.is_available(),
         "config": {
             "resolution": settings.video.resolution,

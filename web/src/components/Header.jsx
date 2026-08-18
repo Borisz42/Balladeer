@@ -164,6 +164,23 @@ export default function Header({
           Shutdown
         </button>
 
+        {/* Model Loading / Active GPU Status Indicator */}
+        {health?.loading_model ? (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/50 text-xs font-mono animate-pulse shadow-sm shadow-amber-500/20">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            <span>Loading {health.loading_model} into GPU...</span>
+          </div>
+        ) : health?.loaded_models && health.loaded_models.length > 0 ? (
+          <div
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-teal-500/30 text-xs font-mono text-slate-300"
+            title={`Active models in VRAM: ${health.loaded_models.join(', ')}`}
+          >
+            <span className="w-2 h-2 rounded-full bg-teal-400 shadow-sm shadow-teal-400"></span>
+            <span className="text-slate-400 text-[11px]">GPU:</span>
+            <span className="text-teal-300 font-bold truncate max-w-[180px]">{health.loaded_models.join(' + ')}</span>
+          </div>
+        ) : null}
+
         {/* Hardware Status Badge */}
         <div className="hidden xl:flex items-center gap-3 pl-3 border-l border-slate-800 text-xs font-mono">
           <div className="flex items-center gap-1.5 text-slate-300">

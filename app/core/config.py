@@ -67,22 +67,22 @@ class HardwareSettings(BaseModel):
     enable_pinned_memory: bool = True
 
 class IndexingSettings(BaseModel):
-    local_model: str = "qwen3.5-4b" # "qwen3.5-4b" or "qwen3.5-9b"
-    vlm_model: str = "unsloth/Qwen3.5-4B-GGUF"
-    vlm_quant: str = "Q4_K_M"
+    local_model: str = "qwen2.5-vl-3b"
+    vlm_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"
+    vlm_quant: str = "nf4"
     quality_threshold: float = 6.0
     scene_detection_threshold: float = 0.3
     siglip_model: str = "google/siglip2-base-patch16-224"
     video_shot_window_sec: int = 3
     fallback_to_heuristic: bool = True
-    batch_size: int = 20
+    batch_size: int = 8
     max_parallel_workers: int = 4
 
 
 class GoogleAISettings(BaseModel):
     api_key: str = ""
     only_local_ai: bool = False
-    batch_size: int = 20
+    batch_size: int = 8
     enable_cloud_waterfall: bool = True
 
 class AudioSettings(BaseModel):

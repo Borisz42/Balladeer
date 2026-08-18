@@ -16,7 +16,7 @@ logger = logging.getLogger("balladeer.siglip")
 
 class SigLIPEmbedder:
     """
-    High-Performance SigLIP 2 Vector Embeddings Generator (google/siglip2-base-patch16-224).
+    High-Performance SigLIP 2 Vector Embeddings & Aesthetic Scorer (google/siglip2-base-patch16-224).
     Outputs 768-dim L2-normalized embeddings for multi-modal travel indexing.
     Runs on NVIDIA CUDA / RTX 3070 with FP16 precision and offline caching.
     """
@@ -25,6 +25,8 @@ class SigLIPEmbedder:
         self._processor = None
         self._model = None
         self._device = None
+        self._cached_pos_emb = None
+        self._cached_neg_emb = None
 
     def _get_processor_and_model(self):
         if self._model is None or self._processor is None:
@@ -38,13 +40,33 @@ class SigLIPEmbedder:
 
                 dtype = torch.float16 if device == "cuda" else torch.float32
 
+                hf_hub_dir = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface" / "hub"))
+                weights_root = settings.data_dir / "weights"
+                repo_slug = "models--" + model_name.replace("/", "--")
+
+                candidate_paths = [
+                    hf_hub_dir / repo_slug,
+                    hf_hub_dir / "siglip2",
+                    weights_root / "siglip2"
+                ]
+
+                model_source = model_name
+                for cp in candidate_paths:
+                    if cp.exists() and (cp.is_dir() and any(cp.iterdir())):
+                        model_source = str(cp)
+                        break
+
+                memory_manager.set_loading("SigLIP 2")
+
                 # 1. Attempt offline load first
                 try:
-                    self._processor = AutoProcessor.from_pretrained(model_name, local_files_only=True)
-                    self._model = AutoModel.from_pretrained(model_name, torch_dtype=dtype, local_files_only=True).to(device)
+                    self._processor = AutoProcessor.from_pretrained(model_source, local_files_only=True)
+                    self._model = AutoModel.from_pretrained(model_source, torch_dtype=dtype, local_files_only=True).to(device)
                     if device == "cuda":
-                        logger.info(f"[GPU] ✓ Loaded SigLIP 2 {model_name} from local cache on CUDA (FP16, ~1.2GB VRAM).")
+                        memory_manager.set_loaded("siglip", "SigLIP 2 (CUDA)")
+                        logger.info(f"[GPU] ✓ Loaded SigLIP 2 {model_name} from local cache on CUDA (FP16, ~0.8GB VRAM).")
                     else:
+                        memory_manager.set_loaded("siglip", "SigLIP 2 (CPU)")
                         logger.warning(f"[CPU] ⚠️ CUDA not available. Loaded SigLIP 2 {model_name} on CPU (FP32).")
                 except Exception:
                     # 2. Download and cache if not locally staged
@@ -52,8 +74,10 @@ class SigLIPEmbedder:
                     self._processor = AutoProcessor.from_pretrained(model_name, token=hf_token)
                     self._model = AutoModel.from_pretrained(model_name, torch_dtype=dtype, token=hf_token).to(device)
                     if device == "cuda":
+                        memory_manager.set_loaded("siglip", "SigLIP 2 (CUDA)")
                         logger.info(f"[GPU] ✓ Downloaded and initialized SigLIP 2 {model_name} on CUDA (FP16).")
                     else:
+                        memory_manager.set_loaded("siglip", "SigLIP 2 (CPU)")
                         logger.warning(f"[CPU] ⚠️ CUDA not available. Initialized SigLIP 2 {model_name} on CPU (FP32).")
 
                 if self._model is not None:
@@ -61,6 +85,7 @@ class SigLIPEmbedder:
 
             except Exception as e:
                 logger.warning(f"SigLIP 2 model load note: {e}")
+                memory_manager.set_loading(None)
                 self._processor = None
                 self._model = None
                 self._device = None
@@ -121,9 +146,7 @@ class SigLIPEmbedder:
                     elif isinstance(item, Image.Image):
                         prepared_pil.append(item.convert("RGB").resize((224, 224), Image.Resampling.BICUBIC))
                     elif isinstance(item, np.ndarray):
-                        # Assume BGR or RGB opencv frame
                         if len(item.shape) == 3 and item.shape[2] == 3:
-                            # If BGR from cv2, convert to RGB
                             rgb_arr = item[:, :, ::-1]
                             pil_img = Image.fromarray(rgb_arr).resize((224, 224), Image.Resampling.BICUBIC)
                             prepared_pil.append(pil_img)
@@ -160,14 +183,11 @@ class SigLIPEmbedder:
                 return self.encode_image(p_str)
             return self.encode_text(p_str)
 
-        return self.encode_text(str(text_or_image))
-
     def encode_batch(self, items: List[Union[str, Path, Image.Image, np.ndarray]]) -> List[List[float]]:
         """Encodes a heterogeneous batch of items (images and/or texts)."""
         if not items:
             return []
         
-        # Check if all items are images or all are text for batch optimization
         all_images = True
         all_texts = True
         for item in items:
@@ -183,12 +203,11 @@ class SigLIPEmbedder:
         if all_texts:
             return self.encode_texts_batch([str(it) for it in items])
 
-        # Mixed items fallback
         return [self.encode(it) for it in items]
 
     def get_aesthetic_anchors(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """Returns cached normalized positive and negative aesthetic anchor embeddings."""
-        if hasattr(self, "_cached_pos_emb") and self._cached_pos_emb is not None and hasattr(self, "_cached_neg_emb") and self._cached_neg_emb is not None:
+        if self._cached_pos_emb is not None and self._cached_neg_emb is not None:
             return self._cached_pos_emb, self._cached_neg_emb
 
         pos_prompt = "a high quality award-winning cinematic photograph, sharp focus, beautiful lighting, stunning professional travel photography"
@@ -251,4 +270,3 @@ class SigLIPEmbedder:
         return vec.tolist()
 
 siglip_embedder = SigLIPEmbedder()
-

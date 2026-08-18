@@ -167,7 +167,11 @@ export default function AssetDetailPane({ project, asset, onAssetUpdated }) {
         min: 0,
         max: 1.0,
         grid: { color: 'rgba(51, 65, 85, 0.2)' },
+<<<<<<< HEAD
         ticks: { color: '#64748b', font: { size: 8, family: 'monospace' } }
+=======
+        ticks: { color: '#64748b', font: { size: 8, family: 'monospace' }, stepSize: 0.2 }
+>>>>>>> 30b8fb5 (feat: optimize local AI indexer performance, batch size 8 for 8GB VRAM, pure SigLIP aesthetic scoring, global cache, and UI loading indicators)
       }
     }
   }), []);

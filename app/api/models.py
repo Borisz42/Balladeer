@@ -115,7 +115,8 @@ def trigger_model_download(req: DownloadModelRequest, background_tasks: Backgrou
     if req.model_name not in MODELS_INFO and req.model_name != "all":
         raise HTTPException(status_code=400, detail=f"Unknown model {req.model_name}")
 
-    dest_dir = get_settings().data_dir / "weights"
+    dest_dir = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface" / "hub"))
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
     def do_download():
         targets = list(MODELS_INFO.keys()) if req.model_name == "all" else [req.model_name]
