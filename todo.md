@@ -40,10 +40,24 @@ This document outlines completed milestones, upcoming improvements, technical op
 * [x] **Date-Aware Beat Placement Affinity:** Beat solver prioritizes matching assets captured on Day X into the corresponding narrative act for Day X.
 * [x] **Dynamic Date Sync (`POST /api/projects/{id}/sync-diary-dates`):** Automatically re-syncs media asset tags when itinerary dates are updated.
 
-### 1.4 System & Engineering Quality
+### 1.4 Media Grid Layout & Thumbnail Orientation Engine
+* [x] **EXIF Orientation Transposition (`ImageOps.exif_transpose`):**
+  * Transposes images automatically during fast thumbnail generation in `indexer.py` so rotated camera/smartphone photos render upright in the Source Media gallery.
+  * Corrects image dimensions during EXIF metadata extraction to match actual visual orientation.
+  * Transposes source images in `compositor.py` before video frame rendering, preventing rotated stills in final montage exports.
+  * Added EXIF transpose handling in `siglip_embedder.py`, `qwen_vlm.py`, and `gemini_client.py`.
+* [x] **Dynamic Sizing Media Preview (Inspector & Modals):**
+  * Replaced fixed `h-44` (176px) letterboxed preview with dynamic vertical expansion container (`min-h-[220px] max-h-[380px] sm:max-h-[440px]`).
+  * Media elements (`<img>` and `<video>`) expand vertically maximally and scale horizontally to preserve true aspect ratio.
+  * Ambient glow backdrop eliminates harsh black letterbox bars.
+* [x] **Responsive Dynamic Tiling for Source Media (`AssetGallery.jsx`):**
+  * Dynamic auto-filling grid layout (`grid-cols-[repeat(auto-fill,minmax(110px,1fr))]`) automatically displaying 4, 5, 6+ columns on wide screens and scaling gracefully on smaller displays.
+  * Standardized `aspect-[4/3]` thumbnail cards with smooth hover zoom animations.
+
+### 1.5 System & Engineering Quality
 * [x] **Centralized Logging System (`logging_config.py`):** Timestamped session logs in `logs/balladeer_YYYYMMDD_HHMMSS.log` with detailed model calls and prompts.
 * [x] **Cross-Platform Line Ending Normalization (`.gitattributes`):** Enforced LF on source/config and CRLF on Windows scripts.
-* [x] **Comprehensive Test Suite:** 38 / 38 unit and integration tests passing (100% pass rate).
+* [x] **Comprehensive Test Suite:** 50 / 50 unit and integration tests passing (100% pass rate).
 
 ---
 
