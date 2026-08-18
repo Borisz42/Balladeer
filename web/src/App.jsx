@@ -3,10 +3,11 @@ import Header from './components/Header';
 import NewProjectModal from './components/NewProjectModal';
 import DiaryEditorModal from './components/DiaryEditorModal';
 import AssetGallery from './components/AssetGallery';
+import AssetDetailPane from './components/AssetDetailPane';
+import VideoPlayerPane from './components/VideoPlayerPane';
 import MusicStudio from './components/MusicStudio';
 import TimelineEditor from './components/TimelineEditor';
 import AssetSwapModal from './components/AssetSwapModal';
-import VideoPlayerModal from './components/VideoPlayerModal';
 import ModelManagerModal from './components/ModelManagerModal';
 import {
   fetchHealth,
@@ -38,10 +39,17 @@ export default function App() {
   const [currentProjectId, setCurrentProjectId] = useState('');
   const [projectDetail, setProjectDetail] = useState(null);
 
+  // Active selected asset for Inspector
+  const [selectedAsset, setSelectedAsset] = useState(null);
+
+  // Synchronized Global Real-Time Playback State
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef(null);
+
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
   const [activeSwapSlice, setActiveSwapSlice] = useState(null);
-  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [isModelModalOpen, setIsModelModalOpen] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
 
@@ -81,6 +89,23 @@ export default function App() {
     };
   }, [currentProjectId]);
 
+  // Smooth 60 FPS real-time render clock when playing
+  useEffect(() => {
+    let animId;
+    if (isPlaying) {
+      const tick = () => {
+        if (audioRef.current) {
+          setCurrentTime(audioRef.current.currentTime);
+        }
+        animId = requestAnimationFrame(tick);
+      };
+      animId = requestAnimationFrame(tick);
+    }
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [isPlaying]);
+
   const loadHealthAndProjects = async () => {
     try {
       const [hData, sData, pList] = await Promise.all([
@@ -104,11 +129,37 @@ export default function App() {
     try {
       const detail = await getProject(id);
       setProjectDetail(detail);
+
+      // Keep selectedAsset in sync
+      if (selectedAsset && detail.assets) {
+        const found = detail.assets.find((a) => a.id === selectedAsset.id);
+        if (found) setSelectedAsset(found);
+      } else if (detail.assets && detail.assets.length > 0 && !selectedAsset) {
+        setSelectedAsset(detail.assets[0]);
+      }
     } catch (err) {
       console.error('Failed to load project detail:', err);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleTogglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const handleSeek = (newTime) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+    }
+    setCurrentTime(newTime);
   };
 
   const handleToggleLocalAi = async (newValue) => {
@@ -184,7 +235,7 @@ export default function App() {
       await generateMusic(currentProjectId, params);
       const detail = await getProject(currentProjectId);
       setProjectDetail(detail);
-      
+
       // If assets are already indexed, automatically solve timeline
       if (detail.assets && detail.assets.length > 0) {
         try {
@@ -275,7 +326,6 @@ export default function App() {
         if (detail.project.status === 'completed' || detail.rendered_video_url) {
           clearInterval(checkInterval);
           setIsRendering(false);
-          setIsVideoModalOpen(true);
         } else if (detail.project.status === 'error') {
           clearInterval(checkInterval);
           setIsRendering(false);
@@ -322,8 +372,21 @@ export default function App() {
     );
   }
 
+  const renderedVideoUrl = projectDetail?.rendered_video_url
+    ? `http://localhost:8000${projectDetail.rendered_video_url}`
+    : null;
+
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col">
+    <div className="h-screen bg-[#070b14] text-slate-100 flex flex-col overflow-hidden">
+      {/* Hidden Central Master Audio Node */}
+      {projectDetail?.audio_track && (
+        <audio
+          ref={audioRef}
+          src={`http://localhost:8000/api/projects/${projectDetail?.project?.id}/audio/master`}
+          onEnded={() => setIsPlaying(false)}
+        />
+      )}
+
       <Header
         projects={projects}
         currentProject={projectDetail?.project}
@@ -343,7 +406,7 @@ export default function App() {
 
       {/* Live SSE Progress Toast Ribbon */}
       {liveProgress && (
-        <div className="bg-slate-900 border-b border-teal-500/30 px-6 py-2.5 flex items-center justify-between text-xs font-mono">
+        <div className="bg-slate-900 border-b border-teal-500/30 px-6 py-2 flex items-center justify-between text-xs font-mono shrink-0">
           <div className="flex items-center gap-2 text-teal-300">
             <Activity className="w-4 h-4 animate-spin text-teal-400" />
             <span>
@@ -362,9 +425,10 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      {/* Main Premiere Pro-Style Multi-Pane Viewport */}
+      <main className="flex-1 w-full p-3 overflow-hidden">
         {!projectDetail ? (
-          <div className="py-24 text-center space-y-4">
+          <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-teal-500/20 text-teal-400 flex items-center justify-center mx-auto shadow-xl shadow-teal-500/20">
               <Sparkles className="w-8 h-8" />
             </div>
@@ -380,42 +444,81 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <>
-            <AssetGallery
-              project={projectDetail.project}
-              assets={projectDetail.assets}
-              onUploadFiles={handleUploadFiles}
-              onIndexDirectory={handleIndexDirectory}
-              onIndexPending={handleIndexPending}
-              onAssetUpdated={() => loadProjectDetail(currentProjectId)}
-              isLoading={isLoading}
-            />
+          <div className="grid grid-cols-12 grid-rows-2 gap-3 h-full overflow-hidden">
+            {/* Top Row: 3 Windows (1/3 each) */}
+            {/* Top Left (Col 1/3): Source Media */}
+            <div className="col-span-12 lg:col-span-4 min-h-0 h-full overflow-hidden">
+              <AssetGallery
+                project={projectDetail.project}
+                assets={projectDetail.assets || []}
+                selectedAsset={selectedAsset}
+                onSelectAsset={setSelectedAsset}
+                onUploadFiles={handleUploadFiles}
+                onIndexDirectory={handleIndexDirectory}
+                onIndexPending={handleIndexPending}
+                onAssetUpdated={() => loadProjectDetail(currentProjectId)}
+                isLoading={isLoading}
+              />
+            </div>
 
-            <MusicStudio
-              project={projectDetail.project}
-              audioTrack={projectDetail.audio_track}
-              onGenerateMusic={handleGenerateMusic}
-              onUploadAudio={handleUploadCustomAudio}
-              onOpenDiary={() => setIsDiaryModalOpen(true)}
-              isGenerating={isGeneratingMusic}
-              health={health}
-            />
+            {/* Top Middle (Col 2/3): Review Selected Media */}
+            <div className="col-span-12 lg:col-span-4 min-h-0 h-full overflow-hidden">
+              <AssetDetailPane
+                project={projectDetail.project}
+                asset={selectedAsset}
+                onAssetUpdated={() => loadProjectDetail(currentProjectId)}
+              />
+            </div>
 
+            {/* Top Right (Col 3/3): Real-Time Program Monitor & Final Movie */}
+            <div className="col-span-12 lg:col-span-4 min-h-0 h-full overflow-hidden">
+              <VideoPlayerPane
+                project={projectDetail.project}
+                audioTrack={projectDetail.audio_track}
+                slices={projectDetail.timeline_slices || []}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
+                onTogglePlay={handleTogglePlay}
+                onSeek={handleSeek}
+                videoUrl={renderedVideoUrl}
+              />
+            </div>
 
-            <TimelineEditor
-              project={projectDetail.project}
-              audioTrack={projectDetail.audio_track}
-              slices={projectDetail.timeline_slices}
-              onOpenSwapModal={(slice) => setActiveSwapSlice(slice)}
-              onUpdateSliceBeatCount={handleUpdateSliceBeatCount}
-              onSplitSlice={handleSplitSlice}
-              onReorderSlices={handleReorderSlices}
-              onSolveTimeline={handleSolveTimeline}
-              onRenderVideo={handleRenderVideo}
-              isSolving={isSolvingTimeline}
-              isRendering={isRendering}
-            />
-          </>
+            {/* Bottom Row: 2 Windows (1/3 Music Studio, 2/3 Big Timeline) */}
+            {/* Bottom Left (Col 1/3): Music Module */}
+            <div className="col-span-12 lg:col-span-4 min-h-0 h-full overflow-hidden">
+              <MusicStudio
+                project={projectDetail.project}
+                audioTrack={projectDetail.audio_track}
+                onGenerateMusic={handleGenerateMusic}
+                onUploadAudio={handleUploadCustomAudio}
+                onOpenDiary={() => setIsDiaryModalOpen(true)}
+                isGenerating={isGeneratingMusic}
+                health={health}
+              />
+            </div>
+
+            {/* Bottom Right (Col 2/3): Big Timeline */}
+            <div className="col-span-12 lg:col-span-8 min-h-0 h-full overflow-hidden">
+              <TimelineEditor
+                project={projectDetail.project}
+                audioTrack={projectDetail.audio_track}
+                slices={projectDetail.timeline_slices || []}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
+                onTogglePlay={handleTogglePlay}
+                onSeek={handleSeek}
+                onOpenSwapModal={(slice) => setActiveSwapSlice(slice)}
+                onUpdateSliceBeatCount={handleUpdateSliceBeatCount}
+                onSplitSlice={handleSplitSlice}
+                onReorderSlices={handleReorderSlices}
+                onSolveTimeline={handleSolveTimeline}
+                onRenderVideo={handleRenderVideo}
+                isSolving={isSolvingTimeline}
+                isRendering={isRendering}
+              />
+            </div>
+          </div>
         )}
       </main>
 
@@ -438,13 +541,6 @@ export default function App() {
         project={projectDetail?.project}
         slice={activeSwapSlice}
         onAssetSwapped={() => loadProjectDetail(currentProjectId)}
-      />
-
-      <VideoPlayerModal
-        isOpen={isVideoModalOpen}
-        onClose={() => setIsVideoModalOpen(false)}
-        project={projectDetail?.project}
-        videoUrl={projectDetail?.rendered_video_url ? `http://localhost:8000${projectDetail.rendered_video_url}` : null}
       />
 
       <ModelManagerModal
