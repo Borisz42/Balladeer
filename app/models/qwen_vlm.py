@@ -259,51 +259,85 @@ class QwenVLMRunner:
         if len(images) == 1:
             return [self._generate_vlm_output(model, processor, images[0], prompt_texts[0])]
 
-        messages_list = [
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "image": img, "max_pixels": 65536, "min_pixels": 16384},
-                        {"type": "text", "text": prompt}
-                    ]
-                }
+        try:
+            # Ensure left padding for batched causal generation
+            if hasattr(processor, "tokenizer") and processor.tokenizer is not None:
+                processor.tokenizer.padding_side = "left"
+                if processor.tokenizer.pad_token is None:
+                    processor.tokenizer.pad_token = processor.tokenizer.eos_token
+
+            messages_list = [
+                [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "image": img, "max_pixels": 65536, "min_pixels": 16384},
+                            {"type": "text", "text": prompt}
+                        ]
+                    }
+                ]
+                for img, prompt in zip(images, prompt_texts)
             ]
-            for img, prompt in zip(images, prompt_texts)
-        ]
 
-        text_prompts = [
-            processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-            for msgs in messages_list
-        ]
-        image_inputs, video_inputs = process_vision_info(messages_list)
+            text_prompts = [
+                processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+                for msgs in messages_list
+            ]
+            image_inputs, video_inputs = process_vision_info(messages_list)
 
-        inputs = processor(
-            text=text_prompts,
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt"
-        )
-
-        model_device = getattr(model, "device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-        inputs = {k: v.to(model_device) if hasattr(v, "to") else v for k, v in inputs.items()}
-
-        with torch.inference_mode():
-            generated_ids = model.generate(
-                **inputs,
-                max_new_tokens=48,
-                do_sample=False
+            inputs = processor(
+                text=text_prompts,
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt"
             )
 
-        generated_ids_trimmed = [
-            out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs["input_ids"], generated_ids)
-        ]
-        return [
-            s.strip() for s in processor.batch_decode(
-                generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
-            )
-        ]
+            model_device = getattr(model, "device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            inputs = {k: v.to(model_device) if hasattr(v, "to") else v for k, v in inputs.items()}
+
+            input_ids_tensor = inputs.get("input_ids")
+            prompt_len = input_ids_tensor.shape[1] if input_ids_tensor is not None and hasattr(input_ids_tensor, "shape") else 0
+
+            with torch.inference_mode():
+                generated_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=48,
+                    do_sample=False
+                )
+
+            # Extract generated tokens
+            if prompt_len > 0:
+                generated_ids_trimmed = [
+                    out_ids[prompt_len:] for out_ids in generated_ids
+                ]
+            else:
+                generated_ids_trimmed = generated_ids
+
+            decoded = [
+                s.strip() for s in processor.batch_decode(
+                    generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+                )
+            ]
+
+            # Verify each item: if any item in the batch produced an empty or too-short string, re-run individually
+            final_outputs = []
+            for i, text in enumerate(decoded):
+                if not text or len(text) < 5 or text.startswith("{") and not '"caption"' in text:
+                    logger.debug(f"[Local-AI] Batch item {i} generated empty/short text, executing single fallback.")
+                    single_res = self._generate_vlm_output(model, processor, images[i], prompt_texts[i])
+                    final_outputs.append(single_res)
+                else:
+                    final_outputs.append(text)
+
+            return final_outputs
+
+        except Exception as e:
+            logger.warning(f"[Local-AI] Batch multimodal inference encountered note ({e}), executing items sequentially.")
+            return [
+                self._generate_vlm_output(model, processor, img, p)
+                for img, p in zip(images, prompt_texts)
+            ]
 
     def describe_and_score(
         self,
