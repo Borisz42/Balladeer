@@ -7,6 +7,23 @@ from typing import Optional
 
 _log_file_path: Optional[Path] = None
 
+class EndpointFilter(logging.Filter):
+    """
+    Filters out frequent health checks and polling requests to keep logs clean.
+    """
+    def __init__(self, excluded_substrings: Optional[list] = None):
+        super().__init__()
+        self.excluded = excluded_substrings or [
+            "/api/health",
+            "/system_stats",
+            "/api/system_stats"
+        ]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(sub in msg for sub in self.excluded)
+
+
 def setup_logging(project_root: Optional[Path] = None) -> Path:
     """
     Configures application-wide logging writing to both standard console
@@ -28,6 +45,7 @@ def setup_logging(project_root: Optional[Path] = None) -> Path:
 
     log_format = "%(asctime)s [%(levelname)s] [%(name)s]: %(message)s"
     formatter = logging.Formatter(log_format)
+    endpoint_filter = EndpointFilter()
 
     # Root logger
     root_logger = logging.getLogger()
@@ -47,13 +65,25 @@ def setup_logging(project_root: Optional[Path] = None) -> Path:
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(endpoint_filter)
     root_logger.addHandler(console_handler)
 
     # 2. File Handler (timestamped utf-8)
     file_handler = logging.FileHandler(str(log_file), mode="a", encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(endpoint_filter)
     root_logger.addHandler(file_handler)
+
+    # 3. Configure uvicorn access and httpx loggers
+    uvicorn_access = logging.getLogger("uvicorn.access")
+    uvicorn_access.addFilter(endpoint_filter)
+
+    uvicorn_logger = logging.getLogger("uvicorn")
+    uvicorn_logger.addFilter(endpoint_filter)
+
+    httpx_logger = logging.getLogger("httpx")
+    httpx_logger.addFilter(endpoint_filter)
 
     root_logger.info("=" * 70)
     root_logger.info(f"   Balladeer Logging Session Started at {datetime.now().isoformat()}")
