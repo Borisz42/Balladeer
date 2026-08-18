@@ -52,7 +52,8 @@ class QwenVLMRunner:
         self._model = None
         self._processor = None
         
-        # Check global cache and local weights directories
+        # Resolve model source (local folder, snapshot, or canonical HF hub ID)
+        canonical_repo = "Qwen/Qwen2.5-VL-3B-Instruct"
         hf_hub_dir = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface" / "hub"))
         weights_root = settings.data_dir / "weights"
 
@@ -62,18 +63,33 @@ class QwenVLMRunner:
             weights_root / target_model,
         ]
 
-        model_source = "Qwen/Qwen2.5-VL-3B-Instruct"
+        model_source = canonical_repo
         for cp in candidate_paths:
-            if cp.exists() and (any(cp.glob("*.safetensors")) or (cp / "config.json").exists() or any(cp.rglob("*.safetensors"))):
+            if not cp.exists():
+                continue
+            if (cp / "config.json").exists():
                 model_source = str(cp)
                 break
+            snapshots_dir = cp / "snapshots"
+            if snapshots_dir.exists():
+                snapshot_subs = [p for p in snapshots_dir.iterdir() if p.is_dir() and (p / "config.json").exists()]
+                if snapshot_subs:
+                    model_source = str(snapshot_subs[0])
+                    break
 
         is_cuda = torch.cuda.is_available() and ("cuda" in settings.hardware.device or memory_manager.is_cuda)
 
         try:
             memory_manager.set_loading("Qwen 2.5 VL (3B)")
             logger.info(f"[Local-AI] Initializing Transformers VLM engine for '{target_model}' (Source: {model_source})...")
-            self._processor = AutoProcessor.from_pretrained(model_source, trust_remote_code=True)
+            
+            try:
+                self._processor = AutoProcessor.from_pretrained(model_source, trust_remote_code=True)
+            except Exception as proc_err:
+                logger.debug(f"[Local-AI] AutoProcessor from {model_source} notice: {proc_err}. Trying canonical {canonical_repo}...")
+                model_source = canonical_repo
+                self._processor = AutoProcessor.from_pretrained(canonical_repo, trust_remote_code=True)
+
             quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.bfloat16,

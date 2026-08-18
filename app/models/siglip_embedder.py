@@ -52,9 +52,17 @@ class SigLIPEmbedder:
 
                 model_source = model_name
                 for cp in candidate_paths:
-                    if cp.exists() and (cp.is_dir() and any(cp.iterdir())):
+                    if not cp.exists():
+                        continue
+                    if (cp / "config.json").exists():
                         model_source = str(cp)
                         break
+                    snapshots_dir = cp / "snapshots"
+                    if snapshots_dir.exists():
+                        snapshot_subs = [p for p in snapshots_dir.iterdir() if p.is_dir() and (p / "config.json").exists()]
+                        if snapshot_subs:
+                            model_source = str(snapshot_subs[0])
+                            break
 
                 memory_manager.set_loading("SigLIP 2")
 
