@@ -6,6 +6,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 
 from app.core.config import get_settings
+from app.core.memory_manager import memory_manager
 
 logger = logging.getLogger("balladeer.model_router")
 
@@ -140,10 +141,17 @@ class IntelligentModelRouter:
                 func = self.local_story_fallback
 
         if func:
-            if asyncio.iscoroutinefunction(func):
-                return await func(payload)
-            # Offload heavy synchronous GPU / CPU execution to worker thread
-            return await asyncio.to_thread(func, payload)
+            model_display_name = "Qwen 2.5 VL (3B)" if task_type == TaskType.VISION_BATCH else "Qwen 3.5 (9B)"
+            memory_manager.set_loading(model_display_name)
+            try:
+                if asyncio.iscoroutinefunction(func):
+                    res = await func(payload)
+                else:
+                    # Offload heavy synchronous GPU / CPU execution to worker thread
+                    res = await asyncio.to_thread(func, payload)
+                return res
+            finally:
+                memory_manager.set_loading(None)
 
         raise RuntimeError(f"No local fallback registered for task {task_type}")
 
