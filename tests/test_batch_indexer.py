@@ -7,29 +7,26 @@ from app.database.models import ProjectModel
 from app.models.qwen_vlm import qwen_vlm
 
 
-class MockChatLlama:
-    def create_chat_completion(self, messages, max_tokens=256):
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": '{"caption": "A scenic landscape during golden hour", "tags": ["landscape", "scenic"], "quality_score": 8.5}'
-                    }
-                }
-            ]
-        }
+from unittest.mock import MagicMock
 
 @pytest.fixture(autouse=True)
 def mock_qwen_llm(monkeypatch):
-    monkeypatch.setattr(qwen_vlm, "_get_llm", lambda: MockChatLlama())
+    from app.core.config import get_settings
+    monkeypatch.setattr(get_settings().google_ai, "only_local_ai", True)
+    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic landscape during golden hour", "tags": ["landscape", "scenic"], "quality_score": 8.5}')
     monkeypatch.setattr(qwen_vlm, "_loaded_model_name", "local-qwen3.5-4b")
+
+
+
+
+import uuid
 
 def test_parallel_batch_indexing():
     async def _run():
         indexer = MediaIndexer()
-        proj_id = "test_proj_batch_idx"
+        proj_id = f"test_proj_batch_idx_{uuid.uuid4().hex[:8]}"
         db.create_project(ProjectModel(id=proj_id, title="Batch Test", narrative_text="Day 1 in Kyoto."))
-
 
         try:
             sample_files = [
@@ -68,8 +65,9 @@ def test_parallel_batch_indexing():
 def test_two_step_media_indexing_and_user_editing():
     async def _run():
         indexer = MediaIndexer()
-        proj_id = "test_proj_two_step"
+        proj_id = f"test_proj_two_step_{uuid.uuid4().hex[:8]}"
         db.create_project(ProjectModel(id=proj_id, title="Two Step Test", narrative_text="Tokyo trip."))
+
 
         try:
             sample_files = [

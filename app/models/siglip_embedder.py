@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Any, List, Union, Optional
+from typing import Any, List, Union, Optional, Tuple
 import numpy as np
 from PIL import Image
 
@@ -186,6 +186,63 @@ class SigLIPEmbedder:
         # Mixed items fallback
         return [self.encode(it) for it in items]
 
+    def get_aesthetic_anchors(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """Returns cached normalized positive and negative aesthetic anchor embeddings."""
+        if hasattr(self, "_cached_pos_emb") and self._cached_pos_emb is not None and hasattr(self, "_cached_neg_emb") and self._cached_neg_emb is not None:
+            return self._cached_pos_emb, self._cached_neg_emb
+
+        pos_prompt = "a high quality award-winning cinematic photograph, sharp focus, beautiful lighting, stunning professional travel photography"
+        neg_prompt = "a low quality blurry noisy dark pixelated poorly lit out of focus photo"
+
+        try:
+            pos_emb = np.array(self.encode_text(pos_prompt), dtype=np.float32)
+            neg_emb = np.array(self.encode_text(neg_prompt), dtype=np.float32)
+            pos_norm = pos_emb / (np.linalg.norm(pos_emb) + 1e-8)
+            neg_norm = neg_emb / (np.linalg.norm(neg_emb) + 1e-8)
+            self._cached_pos_emb = pos_norm
+            self._cached_neg_emb = neg_norm
+            return self._cached_pos_emb, self._cached_neg_emb
+        except Exception as e:
+            logger.debug(f"SigLIP aesthetic anchor init note: {e}")
+            return None, None
+
+    def compute_aesthetic_scores_batch(self, images: List[Union[str, Path, Image.Image, np.ndarray]]) -> List[float]:
+        """
+        Computes local aesthetic quality scores (1.0 to 10.0) using SigLIP 2 zero-shot semantic
+        aesthetics against positive and negative photographic anchor prompts.
+        """
+        if not images:
+            return []
+
+        pos_emb, neg_emb = self.get_aesthetic_anchors()
+
+        try:
+            img_embs = self.encode_images_batch(images)
+            scores = []
+            for emb in img_embs:
+                if pos_emb is not None and neg_emb is not None:
+                    arr = np.array(emb, dtype=np.float32)
+                    arr_norm = arr / (np.linalg.norm(arr) + 1e-8)
+                    pos_sim = float(np.dot(arr_norm, pos_emb))
+                    neg_sim = float(np.dot(arr_norm, neg_emb))
+
+                    # Differential scaling: zero-shot aesthetic score mapped to 1.0 - 10.0 range
+                    diff = pos_sim - neg_sim
+                    raw_score = 7.0 + (diff * 25.0)
+                    calibrated_score = round(float(np.clip(raw_score, 1.0, 10.0)), 1)
+                else:
+                    calibrated_score = 7.0
+                scores.append(calibrated_score)
+            return scores
+        except Exception as e:
+            logger.debug(f"SigLIP aesthetic score batch note: {e}")
+            return [7.0 for _ in images]
+
+    def compute_aesthetic_score(self, image: Union[str, Path, Image.Image, np.ndarray]) -> float:
+        """Computes a single image aesthetic score (1.0 to 10.0) via SigLIP 2 zero-shot aesthetics."""
+        res = self.compute_aesthetic_scores_batch([image])
+        return res[0] if res else 7.0
+
     def _fallback_vector(self, seed_content: Any, dim: int = 768) -> List[float]:
         seed = abs(hash(str(seed_content))) % (2**32)
         rng = np.random.RandomState(seed)
@@ -194,3 +251,4 @@ class SigLIPEmbedder:
         return vec.tolist()
 
 siglip_embedder = SigLIPEmbedder()
+

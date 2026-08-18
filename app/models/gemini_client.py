@@ -65,10 +65,11 @@ class GoogleAIStudioClient:
     async def analyze_image_batch(
         self,
         model_name: str,
-        image_paths: List[Path]
+        images: List[Any]
     ) -> List[Dict[str, Any]]:
         """
         Submits a batch of images to Gemini / Gemma for parallel multimodal indexing.
+        Accepts List[Path], List[Dict[str, Any]], or List[Tuple[Path, Any]].
         Returns a list of structured analysis dicts matching the input order.
         """
         api_key = self._get_api_key()
@@ -77,23 +78,53 @@ class GoogleAIStudioClient:
 
         candidate_slugs = MODEL_API_MAP.get(model_name, [model_name, "gemini-3.5-flash-lite"])
 
+        parsed_items: List[Tuple[Path, str]] = []
+        for it in images:
+            if isinstance(it, dict):
+                p = Path(it.get("path") or it.get("file_path"))
+                meta = it.get("metadata")
+                meta_str = ""
+                if isinstance(meta, dict):
+                    parts = []
+                    if meta.get("gps_lat") and meta.get("gps_lon"):
+                        parts.append(f"GPS: {meta['gps_lat']}°, {meta['gps_lon']}°")
+                    if meta.get("capture_time"):
+                        parts.append(f"Time: {meta['capture_time']}")
+                    if meta.get("camera_make") or meta.get("camera_model"):
+                        cam = f"{meta.get('camera_make', '')} {meta.get('camera_model', '')}".strip()
+                        parts.append(f"Camera: {cam}")
+                    if meta.get("width") and meta.get("height"):
+                        parts.append(f"Resolution: {meta['width']}x{meta['height']}")
+                    if parts:
+                        meta_str = f" [Metadata: {' | '.join(parts)}]"
+                elif isinstance(meta, str) and meta.strip():
+                    meta_str = f" [Metadata: {meta.strip()}]"
+                parsed_items.append((p, meta_str))
+            elif isinstance(it, tuple) and len(it) >= 2:
+                p = Path(it[0])
+                meta_str = f" [Metadata: {str(it[1])}]" if str(it[1]).strip() else ""
+                parsed_items.append((p, meta_str))
+            else:
+                p = Path(it)
+                parsed_items.append((p, ""))
+
         parts: List[Dict[str, Any]] = []
         parts.append({
             "text": (
                 "You are an expert cinematic video editor and photographer. "
-                "Analyze the following batch of numbered vacation/travel photos. "
+                "Analyze the following batch of numbered vacation/travel photos. Picture metadata (GPS coordinates, camera, time, dimensions) is provided where available. "
                 "For EACH photo in order, provide:\n"
                 "1. index (integer starting at 0)\n"
                 "2. caption (concise descriptive sentence for song lyrics matching)\n"
                 "3. tags (array of 3 to 6 descriptive lowercase keywords like 'nature', 'sunset', 'city', 'portrait')\n"
-                "4. quality_score (float from 1.0 to 10.0 reflecting photographic composition, sharpness, and beauty)\n\n"
-                "Return ONLY a valid JSON array of objects with no markdown fences, like:\n"
-                "[{\"index\": 0, \"caption\": \"...\", \"tags\": [\"...\"], \"quality_score\": 8.5}]"
+                "4. quality_score (float from 1.0 to 10.0 reflecting photographic composition, sharpness, lighting balance, and visual appeal; e.g. 5.5 for blurry/poor exposure, 7.5 for good shots, 8.8+ for pro/cinematic shots)\n\n"
+                "Return ONLY a valid JSON array of objects with schema:\n"
+                "[{\"index\": 0, \"caption\": \"...\", \"tags\": [\"...\"], \"quality_score\": 7.8}]"
             )
         })
 
-        for idx, p in enumerate(image_paths):
-            parts.append({"text": f"--- Photo #{idx}: {p.name} ---"})
+        for idx, (p, meta_str) in enumerate(parsed_items):
+            parts.append({"text": f"--- Photo #{idx}: {p.name}{meta_str} ---"})
             parts.append(self._encode_image_to_part(p))
 
         payload = {
@@ -108,7 +139,7 @@ class GoogleAIStudioClient:
         last_error = None
         for slug in candidate_slugs:
             url = f"{self.base_url}/{slug}:generateContent?key={api_key}"
-            logger.info(f"[Google-AI] Dispatching batch vision request to '{slug}' for {len(image_paths)} media item(s): {[p.name for p in image_paths]}")
+            logger.info(f"[Google-AI] Dispatching batch vision request to '{slug}' for {len(parsed_items)} media item(s): {[p.name for p, _ in parsed_items]}")
             logger.info(f"[Google-AI] Vision Prompt: \"{parts[0]['text'][:100]}...\"")
             try:
                 async with httpx.AsyncClient(timeout=35.0) as client:
@@ -138,7 +169,7 @@ class GoogleAIStudioClient:
                             parsed = [parsed]
 
                     results = []
-                    for i, p in enumerate(image_paths):
+                    for i, (p, _) in enumerate(parsed_items):
                         match = next((item for item in parsed if item.get("index") == i), None)
                         if not match and i < len(parsed):
                             match = parsed[i]
@@ -162,6 +193,7 @@ class GoogleAIStudioClient:
                 last_error = str(e)
                 logger.warning(f"[Google-AI] Exception on '{slug}': {e}")
                 continue
+
 
 
         raise RuntimeError(last_error or f"Failed to call Google AI Studio API for {model_name}")

@@ -6,22 +6,14 @@ from app.database import db, ProjectModel
 from app.pipeline.indexer import indexer
 from app.models.qwen_vlm import qwen_vlm
 
-class MockChatLlama:
-    def create_chat_completion(self, messages, max_tokens=256):
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": '{"caption": "A scenic video clip of a journey", "tags": ["video", "scenic"], "quality_score": 8.0}'
-                    }
-                }
-            ]
-        }
+from unittest.mock import MagicMock
 
 @pytest.fixture(autouse=True)
 def mock_qwen_llm(monkeypatch):
-    monkeypatch.setattr(qwen_vlm, "_get_llm", lambda: MockChatLlama())
+    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic video clip of a journey", "tags": ["video", "scenic"], "quality_score": 8.0}')
     monkeypatch.setattr(qwen_vlm, "_loaded_model_name", "local-qwen3.5-4b")
+
 
 def test_video_indexing_foreign_key_integrity(tmp_path):
 

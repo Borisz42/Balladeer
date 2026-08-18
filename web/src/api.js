@@ -65,6 +65,16 @@ export async function updateProjectDiary(id, { title, narrativeText, configOverr
   return res.json();
 }
 
+export async function renameProject(id, title) {
+  const res = await fetch(`${API_BASE}/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title })
+  });
+  if (!res.ok) throw new Error('Failed to rename project');
+  return res.json();
+}
+
 export async function rephraseDiary(params) {
   const res = await fetch(`${API_BASE}/projects/rephrase`, {
     method: 'POST',
@@ -85,6 +95,17 @@ export async function syncProjectDiaryDates(projectId) {
 
 export async function deleteProject(id) {
   const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete project');
+  return res.json();
+}
+
+export async function batchDeleteProjects(projectIds) {
+  const res = await fetch(`${API_BASE}/projects/batch-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_ids: projectIds })
+  });
+  if (!res.ok) throw new Error('Failed to batch delete projects');
   return res.json();
 }
 

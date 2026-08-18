@@ -9,6 +9,9 @@ import MusicStudio from './components/MusicStudio';
 import TimelineEditor from './components/TimelineEditor';
 import AssetSwapModal from './components/AssetSwapModal';
 import ModelManagerModal from './components/ModelManagerModal';
+import ProjectManagerModal from './components/ProjectManagerModal';
+import RenameProjectModal from './components/RenameProjectModal';
+import DeleteConfirmModal from './components/DeleteConfirmModal';
 import {
   fetchHealth,
   fetchSystemSettings,
@@ -16,6 +19,9 @@ import {
   listProjects,
   getProject,
   createProject,
+  renameProject,
+  deleteProject,
+  batchDeleteProjects,
   updateProjectDiary,
   uploadMediaFiles,
   indexDirectory,
@@ -51,6 +57,10 @@ export default function App() {
   const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
   const [activeSwapSlice, setActiveSwapSlice] = useState(null);
   const [isModelModalOpen, setIsModelModalOpen] = useState(false);
+  const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -175,6 +185,74 @@ export default function App() {
     const newProj = await createProject(title, narrativeText, configOverride);
     await loadHealthAndProjects();
     setCurrentProjectId(newProj.id);
+  };
+
+  const handleRenameProject = async (id, newTitle) => {
+    try {
+      await renameProject(id, newTitle);
+      setProjects((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, title: newTitle } : p))
+      );
+      if (currentProjectId === id) {
+        setProjectDetail((prev) =>
+          prev ? { ...prev, project: { ...prev.project, title: newTitle } } : prev
+        );
+      }
+    } catch (err) {
+      console.error('Failed to rename project:', err);
+      throw err;
+    }
+  };
+
+  const handleDeleteProject = async (id) => {
+    setIsDeleting(true);
+    try {
+      await deleteProject(id);
+      const remaining = projects.filter((p) => p.id !== id);
+      setProjects(remaining);
+
+      if (currentProjectId === id) {
+        if (remaining.length > 0) {
+          setCurrentProjectId(remaining[0].id);
+        } else {
+          setCurrentProjectId('');
+          setProjectDetail(null);
+          setSelectedAsset(null);
+        }
+      }
+      setIsDeleteModalOpen(false);
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+      alert('Failed to delete project: ' + err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleBatchDeleteProjects = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    setIsDeleting(true);
+    try {
+      await batchDeleteProjects(ids);
+      const idSet = new Set(ids);
+      const remaining = projects.filter((p) => !idSet.has(p.id));
+      setProjects(remaining);
+
+      if (idSet.has(currentProjectId)) {
+        if (remaining.length > 0) {
+          setCurrentProjectId(remaining[0].id);
+        } else {
+          setCurrentProjectId('');
+          setProjectDetail(null);
+          setSelectedAsset(null);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to batch delete projects:', err);
+      alert('Failed to delete projects: ' + err.message);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleSaveDiary = async (title, narrativeText, configOverride) => {
@@ -393,6 +471,9 @@ export default function App() {
         onSelectProject={setCurrentProjectId}
         onOpenNewProject={() => setIsNewProjectModalOpen(true)}
         onOpenDiary={() => setIsDiaryModalOpen(true)}
+        onOpenProjectManager={() => setIsProjectManagerOpen(true)}
+        onOpenRenameProject={() => setIsRenameModalOpen(true)}
+        onOpenDeleteProject={() => setIsDeleteModalOpen(true)}
         onOpenModelManager={() => setIsModelModalOpen(true)}
         onShutdown={handleShutdown}
         health={health}
@@ -436,12 +517,22 @@ export default function App() {
             <p className="text-sm text-slate-400 max-w-md mx-auto">
               Create your first project to turn your travel diary, photos, and video clips into a beat-synced AI musical montage.
             </p>
-            <button
-              onClick={() => setIsNewProjectModalOpen(true)}
-              className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-sm shadow-lg shadow-teal-500/20 transition"
-            >
-              Create New Project
-            </button>
+            <div className="flex items-center gap-3 justify-center">
+              <button
+                onClick={() => setIsNewProjectModalOpen(true)}
+                className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-sm shadow-lg shadow-teal-500/20 transition"
+              >
+                Create New Project
+              </button>
+              {projects.length > 0 && (
+                <button
+                  onClick={() => setIsProjectManagerOpen(true)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm border border-slate-700 transition"
+                >
+                  Manage Projects ({projects.length})
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-12 grid-rows-2 gap-3 h-full overflow-hidden">
@@ -526,6 +617,33 @@ export default function App() {
         isOpen={isNewProjectModalOpen}
         onClose={() => setIsNewProjectModalOpen(false)}
         onCreate={handleCreateProject}
+      />
+
+      <ProjectManagerModal
+        isOpen={isProjectManagerOpen}
+        onClose={() => setIsProjectManagerOpen(false)}
+        projects={projects}
+        currentProjectId={currentProjectId}
+        onSelectProject={setCurrentProjectId}
+        onOpenNewProject={() => setIsNewProjectModalOpen(true)}
+        onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
+        onBatchDeleteProjects={handleBatchDeleteProjects}
+      />
+
+      <RenameProjectModal
+        isOpen={isRenameModalOpen}
+        onClose={() => setIsRenameModalOpen(false)}
+        project={projectDetail?.project}
+        onRename={handleRenameProject}
+      />
+
+      <DeleteConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        project={projectDetail?.project}
+        onConfirm={() => handleDeleteProject(currentProjectId)}
+        isDeleting={isDeleting}
       />
 
       <DiaryEditorModal

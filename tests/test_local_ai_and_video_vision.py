@@ -10,22 +10,16 @@ from app.database.database import db
 from app.database.models import ProjectModel, MediaAssetModel
 from app.core.config import get_settings
 
-class MockChatLlama:
-    def create_chat_completion(self, messages, max_tokens=256, temperature=0.1):
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": '{"caption": "A couple taking a mirror selfie in a warm bedroom setting with soft natural lighting", "tags": ["couple", "selfie", "portrait", "bedroom"], "quality_score": 8.8}'
-                    }
-                }
-            ]
-        }
-
 @pytest.fixture(autouse=True)
 def mock_qwen_llm(monkeypatch):
-    monkeypatch.setattr(qwen_vlm, "_get_llm", lambda: MockChatLlama())
+    from app.core.config import get_settings
+    monkeypatch.setattr(get_settings().google_ai, "only_local_ai", True)
+    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A couple taking a mirror selfie in a warm bedroom setting with soft natural lighting", "tags": ["couple", "selfie", "portrait", "bedroom"], "quality_score": 8.8}')
     monkeypatch.setattr(qwen_vlm, "_loaded_model_name", "local-qwen3.5-4b")
+
+
+
 
 def test_local_ai_photo_vision_semantic_quality():
     sample_photos = [

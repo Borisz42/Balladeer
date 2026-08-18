@@ -38,6 +38,45 @@ def test_project_api_lifecycle():
     assert list_res.status_code == 200
     assert any(p["id"] == project_id for p in list_res.json())
 
-    # 4. Delete project
+    # 4. Rename project via PUT
+    rename_res = client.put(
+        f"/api/projects/{project_id}",
+        json={"title": "Tokyo Journey Remastered"}
+    )
+    assert rename_res.status_code == 200
+    renamed_detail = rename_res.json()
+    assert renamed_detail["project"]["title"] == "Tokyo Journey Remastered"
+
+    # 5. Rename project via PATCH
+    patch_res = client.patch(
+        f"/api/projects/{project_id}",
+        json={"title": "Tokyo Journey Final"}
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["project"]["title"] == "Tokyo Journey Final"
+
+    # 6. Delete project
     del_res = client.delete(f"/api/projects/{project_id}")
     assert del_res.status_code == 200
+
+    # Verify deleted
+    verify_res = client.get(f"/api/projects/{project_id}")
+    assert verify_res.status_code == 404
+
+def test_project_batch_delete():
+    # Create 2 test projects
+    p1 = client.post("/api/projects", json={"title": "Batch Test 1", "narrative_text": "text 1"}).json()
+    p2 = client.post("/api/projects", json={"title": "Batch Test 2", "narrative_text": "text 2"}).json()
+
+    # Batch delete both
+    batch_res = client.post(
+        "/api/projects/batch-delete",
+        json={"project_ids": [p1["id"], p2["id"]]}
+    )
+    assert batch_res.status_code == 200
+    assert p1["id"] in batch_res.json()["deleted_ids"]
+    assert p2["id"] in batch_res.json()["deleted_ids"]
+
+    assert client.get(f"/api/projects/{p1['id']}").status_code == 404
+    assert client.get(f"/api/projects/{p2['id']}").status_code == 404
+

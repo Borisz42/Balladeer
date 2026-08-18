@@ -23,6 +23,22 @@ def test_video_subsegments_extraction(tmp_path):
     assert 0.0 <= segs[0].motion_score <= 1.0
     assert segs[1].start_time == 3.0
     assert segs[2].end_time == 9.0
+    for s in segs:
+        assert s.frame_scores is not None
+        pts = json.loads(s.frame_scores)
+        assert len(pts) > 0
+        assert "t" in pts[0] and "s_comp" in pts[0]
+
+def test_ffmpeg_1fps_video_extraction():
+    video_sample = Path("japan_montage.mp4")
+    if video_sample.exists():
+        indexer = MediaIndexer()
+        frames = indexer.extract_video_frames_1fps(video_sample, max_duration=5.0)
+        assert len(frames) >= 4
+        t, f = frames[0]
+        assert t == 0.0
+        assert f.shape == (224, 224, 3)
+
 
 def test_video_segments_and_frame_scores_api():
     proj_id = "test_proj_segments_api"

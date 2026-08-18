@@ -86,8 +86,13 @@ def create_new_project(req: CreateProjectRequest):
     db.create_project(project)
     return project
 
+class BatchDeleteRequest(BaseModel):
+    project_ids: List[str]
+
 @router.put("/{project_id}", response_model=ProjectDetailResponse)
+@router.patch("/{project_id}", response_model=ProjectDetailResponse)
 @router.put("/{project_id}/diary", response_model=ProjectDetailResponse)
+@router.put("/{project_id}/rename", response_model=ProjectDetailResponse)
 def update_project_diary(project_id: str, req: UpdateProjectRequest):
     proj = db.get_project(project_id)
     if not proj:
@@ -150,11 +155,6 @@ def sync_diary_dates(project_id: str):
     updated = indexer.sync_assets_with_diary_dates(project_id, diary_days)
     return {"status": "synced", "project_id": project_id, "updated_assets": updated}
 
-@router.get("", response_model=List[ProjectModel])
-def list_projects():
-    return db.list_projects()
-
-
 @router.get("/{project_id}", response_model=ProjectDetailResponse)
 def get_project_detail(project_id: str):
     proj = db.get_project(project_id)
@@ -179,13 +179,45 @@ def get_project_detail(project_id: str):
         rendered_video_url=video_url
     )
 
+def cleanup_project_files(project_id: str):
+    try:
+        settings = get_settings()
+        uploads = settings.uploads_dir / project_id
+        output = settings.output_dir / project_id
+        if uploads.exists():
+            shutil.rmtree(uploads, ignore_errors=True)
+        if output.exists():
+            shutil.rmtree(output, ignore_errors=True)
+        assets = db.get_project_assets(project_id)
+        for a in assets:
+            try:
+                thumb = indexer.get_thumbnail_path(a.id)
+                if thumb.exists():
+                    thumb.unlink()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Error cleaning up disk files for project {project_id}: {e}")
+
 @router.delete("/{project_id}")
 def delete_project(project_id: str):
     proj = db.get_project(project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+    cleanup_project_files(project_id)
     db.delete_project(project_id)
     return {"status": "deleted", "id": project_id}
+
+@router.post("/batch-delete")
+def batch_delete_projects(req: BatchDeleteRequest):
+    deleted = []
+    for pid in req.project_ids:
+        proj = db.get_project(pid)
+        if proj:
+            cleanup_project_files(pid)
+            db.delete_project(pid)
+            deleted.append(pid)
+    return {"status": "deleted", "deleted_ids": deleted}
 
 @router.post("/{project_id}/upload", response_model=List[MediaAssetModel])
 async def upload_media(project_id: str, files: List[UploadFile] = File(...)):

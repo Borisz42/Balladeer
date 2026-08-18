@@ -1,6 +1,21 @@
 import React from 'react';
-import { Music, Video, Plus, HardDrive, Cpu, RefreshCw, Power, Shield, ToggleLeft, ToggleRight, Key, BookOpen } from 'lucide-react';
-
+import {
+  Music,
+  Video,
+  Plus,
+  HardDrive,
+  Cpu,
+  RefreshCw,
+  Power,
+  Shield,
+  ToggleLeft,
+  ToggleRight,
+  Key,
+  BookOpen,
+  Edit2,
+  Trash2,
+  FolderKanban
+} from 'lucide-react';
 
 export default function Header({
   projects,
@@ -8,6 +23,9 @@ export default function Header({
   onSelectProject,
   onOpenNewProject,
   onOpenDiary,
+  onOpenProjectManager,
+  onOpenRenameProject,
+  onOpenDeleteProject,
   health,
   systemSettings,
   onToggleLocalAi,
@@ -39,13 +57,13 @@ export default function Header({
       </div>
 
       {/* Project Selector & Actions */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-3 py-1.5">
-          <label className="text-xs text-slate-400 font-medium">Project:</label>
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 rounded-lg pl-3 pr-1.5 py-1">
+          <label className="text-xs text-slate-400 font-medium shrink-0">Project:</label>
           <select
             value={currentProject?.id || ''}
             onChange={(e) => onSelectProject(e.target.value)}
-            className="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer"
+            className="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer max-w-[180px] truncate"
           >
             {projects.length === 0 ? (
               <option value="">No projects</option>
@@ -57,7 +75,40 @@ export default function Header({
               ))
             )}
           </select>
+
+          {currentProject && (
+            <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
+              <button
+                onClick={onOpenRenameProject}
+                className="p-1 rounded-md hover:bg-slate-800 text-slate-400 hover:text-teal-300 transition"
+                title="Rename current project"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={onOpenDeleteProject}
+                className="p-1 rounded-md hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 transition"
+                title="Delete current project"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
+
+        <button
+          onClick={onOpenProjectManager}
+          className="flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 font-semibold px-3 py-1.5 rounded-lg text-xs transition"
+          title="Manage all projects, batch remove test projects, or switch projects"
+        >
+          <FolderKanban className="w-3.5 h-3.5 text-teal-400" />
+          <span>Projects</span>
+          {projects.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-slate-900 text-[10px] text-slate-400 font-mono">
+              {projects.length}
+            </span>
+          )}
+        </button>
 
         {currentProject && (
           <button
