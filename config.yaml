@@ -9,7 +9,8 @@ indexing:
   vlm_quant: "Q4_K_M"
   quality_threshold: 6.0
   scene_detection_threshold: 0.3
-  clip_model: "sentence-transformers/clip-ViT-B-32"
+  siglip_model: "google/siglip2-base-patch16-224"
+  video_shot_window_sec: 3
   fallback_to_heuristic: true
   batch_size: 20
   max_parallel_workers: 4
@@ -52,4 +53,4 @@ video:
 huggingface:
   api_key: ""
   vlm_model_id: "unsloth/Qwen3.5-4B-GGUF"
-  clip_model_id: "sentence-transformers/clip-ViT-B-32"
+  siglip_model_id: "google/siglip2-base-patch16-224"

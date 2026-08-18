@@ -65,7 +65,7 @@ STORY & RHYMING LYRIC WATERFALL (Text Planning & Google Flow Music Prompts)
 │  • Parallel Batch Media Ingestion (up to 25 items / batch)             │
 │  • Intelligent Model Dispatcher (Gemini Flash Lite -> Gemma -> Local)  │
 │  • Scene Cut & Subsegment Detector (PySceneDetect / OpenCV)            │
-│  • Visual Embeddings & Search (CLIP ViT-B-32 512-dim)                  │
+│  • Visual Embeddings & Search (SigLIP 2 Base 768-dim FP16)             │
 │  • Local Visual-Language Model Fallback (Qwen3.5-4B-GGUF Q4_K_M)       │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
@@ -236,7 +236,7 @@ Balladeer/
 │   │   ├── minimax_music.py  # MiniMax Music 3 synthesis engine
 │   │   ├── cmf_runner.py     # Cortiq CMF MiniMax Music 3 native runner (Vulkan GPU)
 │   │   ├── comfy_music_worker.py # Headless ComfyUI worker interface
-│   │   ├── clip_embedder.py  # CLIP ViT-B-32 vector embeddings
+│   │   ├── siglip_embedder.py # SigLIP 2 Base vector embeddings (768-dim FP16)
 │   │   ├── demucs_separator.py # Demucs audio stem separation
 │   │   └── mms_aligner.py    # TorchAudio MMS_FA forced alignment & beat snapper
 │   ├── pipeline/             # Core processing phases

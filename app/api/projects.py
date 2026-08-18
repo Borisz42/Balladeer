@@ -13,6 +13,7 @@ from app.database.database import db
 from app.database.models import (
     ProjectModel,
     MediaAssetModel,
+    VideoSegmentModel,
     AudioTrackModel,
     TimelineSliceModel,
     ProjectDetailResponse
@@ -325,9 +326,9 @@ def update_asset(project_id: str, asset_id: str, req: UpdateAssetRequest):
     updates = {}
     if req.caption is not None:
         updates["caption"] = req.caption.strip()
-        # Re-compute CLIP embedding for user's updated caption
+        # Re-compute SigLIP 2 embedding for user's updated caption
         if req.caption.strip():
-            updates["embedding"] = indexer.generate_clip_embedding(req.caption.strip())
+            updates["embedding"] = indexer.generate_siglip_embedding(req.caption.strip())
         updates["indexed_by_model"] = "user-edited"
 
     if req.tags is not None:
@@ -347,6 +348,53 @@ async def reindex_asset(project_id: str, asset_id: str):
     if not updated:
         raise HTTPException(status_code=404, detail="Asset not found or failed to reindex")
     return updated
+
+@router.get("/{project_id}/assets/{asset_id}/segments", response_model=List[VideoSegmentModel])
+def get_asset_segments(project_id: str, asset_id: str):
+    """Returns the visual subsegments and best n-sec timestamps for a video asset."""
+    asset = db.get_asset(asset_id)
+    if not asset or asset.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return db.get_video_segments(asset_id)
+
+@router.get("/{project_id}/assets/{asset_id}/frame-scores")
+def get_asset_frame_scores(project_id: str, asset_id: str):
+    """Returns the time-series frame aesthetic, relevance, and composite scores for charting."""
+    asset = db.get_asset(asset_id)
+    if not asset or asset.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    segments = db.get_video_segments(asset_id)
+    all_points = []
+    import json
+    for s in segments:
+        if s.frame_scores:
+            try:
+                pts = json.loads(s.frame_scores)
+                if isinstance(pts, list):
+                    all_points.extend(pts)
+            except Exception:
+                pass
+
+    all_points.sort(key=lambda x: x.get("t", 0.0))
+    return {
+        "asset_id": asset_id,
+        "duration_sec": asset.duration_sec,
+        "segments": [
+            {
+                "id": s.id,
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "best_shot_start": s.best_shot_start,
+                "best_shot_end": s.best_shot_end,
+                "motion_score": s.motion_score,
+                "relevance_score": s.relevance_score,
+                "description": s.description
+            }
+            for s in segments
+        ],
+        "frame_scores": all_points
+    }
 
 @router.post("/{project_id}/generate-music", response_model=AudioTrackModel)
 async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):

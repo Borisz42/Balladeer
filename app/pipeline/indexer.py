@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.database.database import db
 from app.database.models import MediaAssetModel, VideoSegmentModel
 from app.models.qwen_vlm import qwen_vlm
-from app.models.clip_embedder import clip_embedder
+from app.models.siglip_embedder import siglip_embedder
 from app.models.gemini_client import gemini_client
 from app.models.model_router import model_router, TaskType
 
@@ -25,10 +25,18 @@ logger = logging.getLogger("balladeer.indexer")
 
 class MediaIndexer:
     """
-    Phase 1: 2-Step Parallel Media Ingestion & Multi-Modal Indexing Engine.
+    Automated Travel Montage AI Indexer (Offline High-Throughput Media Ingestion & Scoring Engine).
     
-    Step 1: Rapid Media Staging (Fast EXIF, dimensions, video duration, and thumbnail generation).
-    Step 2: Batch AI Vision Indexing via Intelligent Multi-Tier Model Waterfall (Gemini -> Gemma -> Local Qwen).
+    Stage 1: Ultra-Fast Frame Scoring & Best Shot Selection
+    - SigLIP 2 embeddings (google/siglip2-base-patch16-224, downscaled 224x224).
+    - Decodes video at 1 fps.
+    - Aesthetic & Sharpness evaluation (Laplacian variance & dynamic range) -> S_aes.
+    - Travel log relevance scoring (Daily log + Overall full travel log) -> S_rel.
+    - Visual similarity segmentation & 1D rolling convolution -> Best n-sec shot selection.
+    
+    Stage 2: 1-Sentence Semantic Captioning
+    - Qwen 3.5 (4B/9B Q4_K_M GGUF via llama-cpp with strict CoT bypass).
+    - Capped at 512x512 pixels for winning representative frame.
     """
 
     def __init__(self):
@@ -40,7 +48,7 @@ class MediaIndexer:
         return thumb_dir / f"{asset_id}.jpg"
 
     def generate_thumbnail(self, media_path: Path, asset_id: str, media_type: str, max_dim: int = 400) -> Optional[str]:
-        """Generates and saves a fast JPEG thumbnail for photos and video frames using ffmpeg / PIL."""
+        """Generates and saves a fast JPEG thumbnail for photos and video frames using ffmpeg / cv2 / PIL."""
         try:
             thumb_path = self.get_thumbnail_path(asset_id)
             if thumb_path.exists() and thumb_path.stat().st_size > 0:
@@ -230,8 +238,299 @@ class MediaIndexer:
 
         return staged
 
+    def generate_siglip_embedding(self, text_or_image: Any) -> List[float]:
+        return siglip_embedder.encode(text_or_image)
+
     def generate_clip_embedding(self, text_or_image: Any) -> List[float]:
-        return clip_embedder.encode(text_or_image)
+        """Backward compatibility alias for SigLIP 2 embeddings."""
+        return self.generate_siglip_embedding(text_or_image)
+
+    def evaluate_frame_aesthetics(self, img_rgb_or_bgr: np.ndarray) -> float:
+        """
+        Aesthetic & Sharpness Evaluation ($S_{aes} \in [0, 1]$):
+        - Laplacian variance for sharpness (weeding out motion blur & pocket shots).
+        - Dynamic range and luminance balance for exposure.
+        """
+        try:
+            if len(img_rgb_or_bgr.shape) == 3:
+                if cv2 is not None:
+                    gray = cv2.cvtColor(img_rgb_or_bgr, cv2.COLOR_BGR2GRAY if img_rgb_or_bgr.shape[2] == 3 else cv2.COLOR_RGB2GRAY)
+                else:
+                    # RGB to luminance grayscale
+                    gray = (0.299 * img_rgb_or_bgr[:, :, 0] + 0.587 * img_rgb_or_bgr[:, :, 1] + 0.114 * img_rgb_or_bgr[:, :, 2]).astype(np.float32)
+            else:
+                gray = img_rgb_or_bgr.astype(np.float32)
+            
+            # 1. Laplacian variance for sharpness
+            if cv2 is not None:
+                lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+            else:
+                # Pure numpy 2D discrete Laplacian
+                lap = (
+                    gray[1:-1, 2:] + gray[1:-1, :-2] + gray[2:, 1:-1] + gray[:-2, 1:-1] - 4.0 * gray[1:-1, 1:-1]
+                )
+                lap_var = float(np.var(lap)) if lap.size > 0 else 0.0
+
+            sharpness_score = min(1.0, lap_var / 350.0)
+
+            # 2. Dynamic range & exposure balance
+            mean_lum = float(np.mean(gray))
+            std_lum = float(np.std(gray))
+
+            if mean_lum < 35 or mean_lum > 225:
+                exposure_score = 0.3
+            elif 60 <= mean_lum <= 190:
+                exposure_score = 0.85 + min(0.15, std_lum / 100.0)
+            else:
+                exposure_score = 0.6 + min(0.2, std_lum / 100.0)
+
+            s_aes = (0.6 * sharpness_score) + (0.4 * exposure_score)
+            return round(float(np.clip(s_aes, 0.0, 1.0)), 3)
+        except Exception as e:
+            logger.debug(f"Aesthetic evaluation notice: {e}")
+        return 0.7
+
+    def extract_video_frames_1fps(self, video_path: Path, max_duration: Optional[float] = None) -> List[Tuple[float, np.ndarray]]:
+        """
+        Decodes video at 1 frame per second (1 fps) using OpenCV.
+        Returns list of (timestamp_sec, frame_bgr_224x224).
+        """
+        frames: List[Tuple[float, np.ndarray]] = []
+        if cv2 is None or not video_path.exists():
+            return frames
+
+        try:
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                return frames
+
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            duration = total_frames / fps if fps > 0 else 0.0
+            if max_duration and max_duration > 0:
+                duration = min(duration, max_duration)
+
+            current_sec = 0.0
+            while current_sec < duration:
+                frame_num = int(current_sec * fps)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    break
+                # Downscale to 224x224 for SigLIP 2
+                small_frame = cv2.resize(frame, (224, 224), interpolation=cv2.INTER_AREA)
+                frames.append((round(current_sec, 2), small_frame))
+                current_sec += 1.0
+
+            cap.release()
+        except Exception as e:
+            logger.debug(f"1 fps video extraction note on {video_path.name}: {e}")
+
+        return frames
+
+    def get_project_log_embeddings(self, project_id: str) -> Tuple[Optional[List[float]], Dict[str, List[float]]]:
+        """
+        Computes SigLIP 2 text embeddings for:
+        1. Overall full travel log (combining project narrative and all active diary days).
+        2. Day-specific travel log embeddings mapped by date/day_number.
+        """
+        project = db.get_project(project_id)
+        if not project:
+            return None, {}
+
+        full_narrative = project.narrative_text or ""
+        diary_days = (project.config_override or {}).get("diary_days", [])
+        
+        all_texts = []
+        if full_narrative:
+            all_texts.append(full_narrative)
+        
+        day_embs: Dict[str, List[float]] = {}
+        for d in diary_days:
+            day_text = f"{d.get('title', '')} {d.get('notes', '')}".strip()
+            if day_text:
+                all_texts.append(day_text)
+                day_key = str(d.get("date", f"day_{d.get('day_number', 1)}"))
+                day_embs[day_key] = siglip_embedder.encode_text(day_text)
+
+        combined_full_log = " | ".join([t for t in all_texts if t]) or project.title or "Travel vacation montage"
+        full_log_emb = siglip_embedder.encode_text(combined_full_log)
+        return full_log_emb, day_embs
+
+    @staticmethod
+    def cosine_similarity(v1: Optional[List[float]], v2: Optional[List[float]]) -> float:
+        if not v1 or not v2:
+            return 0.6
+        a = np.array(v1, dtype=np.float32)
+        b = np.array(v2, dtype=np.float32)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.6
+        sim = float(np.dot(a, b) / (norm_a * norm_b))
+        return float(np.clip((sim + 1.0) / 2.0, 0.0, 1.0))
+
+    def process_video_and_extract_segments(
+        self,
+        asset: MediaAssetModel,
+        full_log_emb: Optional[List[float]],
+        day_log_emb: Optional[List[float]],
+        window_sec: int = 3
+    ) -> Tuple[List[VideoSegmentModel], Path]:
+        """
+        Stage 1: Ultra-Fast Frame Scoring & Best Shot Selection
+        - Decodes video at 1 fps.
+        - Scores every frame for Aesthetics ($S_{aes}$) & Travel Log Relevance ($S_{rel}$).
+        - Segments video based on visual similarity cosine distance.
+        - Applies 1D rolling convolution ($S = 0.7 S_{rel} + 0.3 S_{aes}$) over n-sec window inside each segment.
+        - Extracts best representative frame for Qwen captioning.
+        """
+        video_path = Path(asset.file_path)
+        frames_1fps = self.extract_video_frames_1fps(video_path, max_duration=asset.duration_sec)
+        thumb_p = Path(self.get_thumbnail_path(asset.id))
+        
+        if not frames_1fps:
+            duration = asset.duration_sec if asset.duration_sec > 0 else 3.0
+            step = 3.0
+            segments: List[VideoSegmentModel] = []
+            curr_t = 0.0
+            s_idx = 0
+            while curr_t < duration:
+                end_t = min(curr_t + step, duration)
+                motion = round(0.5 + (0.35 * np.sin(s_idx * 1.3)), 2)
+                emb = siglip_embedder.encode(thumb_p if thumb_p.exists() else f"{asset.id} segment {s_idx}")
+                segments.append(
+                    VideoSegmentModel(
+                        id=f"seg_{asset.id}_{s_idx}",
+                        asset_id=asset.id,
+                        start_time=round(curr_t, 2),
+                        end_time=round(end_t, 2),
+                        motion_score=round(max(0.1, min(1.0, motion)), 2),
+                        description=f"Action segment {s_idx+1}",
+                        embedding=emb
+                    )
+                )
+                curr_t = end_t
+                s_idx += 1
+            return segments, thumb_p
+
+        timestamps = [t for t, _ in frames_1fps]
+        raw_frames = [f for _, f in frames_1fps]
+        
+        # Batched SigLIP 2 frame embeddings
+        frame_embs = siglip_embedder.encode_images_batch(raw_frames)
+
+        # Compute S_aes and S_rel for each frame
+        composite_scores = []
+        s_rel_arr = []
+        s_aes_arr = []
+        for i, f in enumerate(raw_frames):
+            s_aes = self.evaluate_frame_aesthetics(f)
+            emb = frame_embs[i]
+            
+            s_rel_daily = self.cosine_similarity(emb, day_log_emb) if day_log_emb else 0.65
+            s_rel_full = self.cosine_similarity(emb, full_log_emb) if full_log_emb else 0.65
+            s_rel = (0.6 * s_rel_daily) + (0.4 * s_rel_full)
+            
+            s_comp = (0.7 * s_rel) + (0.3 * s_aes)
+            composite_scores.append(s_comp)
+            s_rel_arr.append(s_rel)
+            s_aes_arr.append(s_aes)
+
+        # Visual similarity segmentation
+        sim_threshold = getattr(self.settings.indexing, "scene_detection_threshold", 0.30)
+        segment_bounds = [0]
+        
+        for i in range(1, len(frame_embs)):
+            # Cosine distance
+            dot_prod = float(np.dot(frame_embs[i], frame_embs[i-1]))
+            dist = 1.0 - dot_prod
+            curr_seg_len = i - segment_bounds[-1]
+            if (dist > sim_threshold and curr_seg_len >= 2) or curr_seg_len >= 12:
+                segment_bounds.append(i)
+        
+        if segment_bounds[-1] != len(frame_embs):
+            segment_bounds.append(len(frame_embs))
+
+        segments: List[VideoSegmentModel] = []
+        best_global_score = -1.0
+        best_global_rep_frame_path = None
+
+        temp_dir = self.settings.output_dir / "temp_frames"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        for seg_idx in range(len(segment_bounds) - 1):
+            start_idx = segment_bounds[seg_idx]
+            end_idx = segment_bounds[seg_idx + 1]
+            seg_scores = np.array(composite_scores[start_idx:end_idx], dtype=np.float32)
+            seg_len = len(seg_scores)
+
+            seg_start_t = timestamps[start_idx]
+            seg_end_t = min(timestamps[end_idx - 1] + 1.0, asset.duration_sec)
+
+            # 1D Rolling Convolution for Best n-sec Shot
+            w = min(max(2, window_sec), seg_len)
+            if seg_len >= w:
+                kernel = np.ones(w, dtype=np.float32) / w
+                rolling_avg = np.convolve(seg_scores, kernel, mode="valid")
+                best_offset = int(np.argmax(rolling_avg))
+                best_shot_score = float(rolling_avg[best_offset])
+                best_start_t = timestamps[start_idx + best_offset]
+                best_end_t = min(timestamps[start_idx + best_offset + w - 1] + 1.0, asset.duration_sec)
+                rep_idx = start_idx + best_offset + (w // 2)
+            else:
+                best_shot_score = float(np.mean(seg_scores))
+                best_start_t = seg_start_t
+                best_end_t = seg_end_t
+                rep_idx = start_idx + (seg_len // 2)
+
+            rep_idx = min(rep_idx, len(frames_1fps) - 1)
+            rep_emb = frame_embs[rep_idx]
+            rep_frame_bgr = raw_frames[rep_idx]
+
+            # Build per-second frame score points for visualization
+            seg_frame_scores = [
+                {
+                    "t": round(float(timestamps[idx]), 2),
+                    "s_rel": round(float(s_rel_arr[idx]), 3),
+                    "s_aes": round(float(s_aes_arr[idx]), 3),
+                    "s_comp": round(float(composite_scores[idx]), 3)
+                }
+                for idx in range(start_idx, end_idx)
+            ]
+            seg_relevance = round(float(np.mean(s_rel_arr[start_idx:end_idx])), 3)
+
+            # Save representative frame image (max 512x512) for Qwen captioning
+            seg_rep_path = temp_dir / f"rep_{asset.id}_seg{seg_idx}.jpg"
+            if cv2 is not None:
+                h, w_dim = rep_frame_bgr.shape[:2]
+                scale = min(512.0 / max(h, w_dim, 1), 1.0)
+                resized_bgr = cv2.resize(rep_frame_bgr, (int(w_dim * scale), int(h * scale)), interpolation=cv2.INTER_AREA) if scale < 1.0 else rep_frame_bgr
+                cv2.imwrite(str(seg_rep_path), resized_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+            if best_shot_score > best_global_score:
+                best_global_score = best_shot_score
+                best_global_rep_frame_path = seg_rep_path
+
+            seg_model = VideoSegmentModel(
+                id=f"seg_{asset.id}_{seg_idx}",
+                asset_id=asset.id,
+                start_time=round(seg_start_t, 2),
+                end_time=round(seg_end_t, 2),
+                motion_score=round(best_shot_score, 2),
+                relevance_score=seg_relevance,
+                best_shot_start=round(best_start_t, 2),
+                best_shot_end=round(best_end_t, 2),
+                description=f"Action scene (Segment {seg_idx+1})",
+                embedding=rep_emb,
+                frame_scores=json.dumps(seg_frame_scores)
+            )
+            segments.append(seg_model)
+
+        if not best_global_rep_frame_path or not best_global_rep_frame_path.exists():
+            best_global_rep_frame_path = thumb_p
+
+        return segments, best_global_rep_frame_path
 
     def extract_video_subsegments(
         self,
@@ -239,6 +538,7 @@ class MediaIndexer:
         arg2: Any,
         duration_sec: float
     ) -> List[VideoSegmentModel]:
+        """Legacy helper for subsegment extraction."""
         if isinstance(arg1, Path) or (isinstance(arg1, str) and ("." in arg1 or "/" in arg1 or "\\" in arg1)):
             video_path = Path(arg1)
             asset_id = str(arg2)
@@ -247,45 +547,15 @@ class MediaIndexer:
             video_path = Path(arg2)
 
         v_name = video_path.name if isinstance(video_path, Path) else str(video_path)
-
-        segments: List[VideoSegmentModel] = []
-        if duration_sec <= 3.0:
-            emb = self.generate_clip_embedding(v_name)
-            return [
-                VideoSegmentModel(
-                    id=f"seg_{asset_id}_0",
-                    asset_id=asset_id,
-                    start_time=0.0,
-                    end_time=duration_sec,
-                    motion_score=0.7,
-                    description="Action scene",
-                    embedding=emb
-                )
-            ]
-
-        step = 3.0
-        current_t = 0.0
-        idx = 0
-        while current_t < duration_sec:
-            end_t = min(current_t + step, duration_sec)
-            motion = 0.5 + (0.35 * np.sin(idx * 1.3))
-            emb = self.generate_clip_embedding(f"{v_name} subclip {idx}")
-
-            segments.append(
-                VideoSegmentModel(
-                    id=f"seg_{asset_id}_{idx}",
-                    asset_id=asset_id,
-                    start_time=round(current_t, 2),
-                    end_time=round(end_t, 2),
-                    motion_score=round(max(0.1, min(1.0, motion)), 2),
-                    description=f"Action segment {idx+1}",
-                    embedding=emb
-                )
-            )
-            current_t = end_t
-            idx += 1
-
-        return segments
+        dummy_asset = MediaAssetModel(
+            id=asset_id,
+            project_id="temp",
+            file_path=str(video_path),
+            media_type="video",
+            duration_sec=duration_sec
+        )
+        segs, _ = self.process_video_and_extract_segments(dummy_asset, None, None)
+        return segs
 
     def get_visual_path(self, asset: MediaAssetModel) -> Path:
         """Returns the image path or video thumbnail path for AI vision processing."""
@@ -297,140 +567,6 @@ class MediaIndexer:
             if thumb_path.exists() and thumb_path.stat().st_size > 0:
                 return thumb_path
         return p
-
-    async def index_pending_assets(
-        self,
-        project_id: str,
-        asset_ids: Optional[List[str]] = None,
-        batch_size: Optional[int] = None,
-        progress_callback: Optional[Callable[[str, float], Any]] = None
-    ) -> List[MediaAssetModel]:
-        """
-        Step 2: Executes AI indexing on non-indexed or selected assets (both photos and videos)
-        using the Model Priority Waterfall.
-        """
-        all_assets = db.get_project_assets(project_id)
-        if asset_ids:
-            target_assets = [a for a in all_assets if a.id in asset_ids]
-        else:
-            target_assets = [a for a in all_assets if not a.is_indexed]
-
-        if not target_assets:
-            logger.info("No pending unindexed assets to process.")
-            return []
-
-        settings = get_settings()
-        chunk_size = batch_size or settings.google_ai.batch_size or 20
-        total_count = len(target_assets)
-        processed_count = 0
-        indexed_results: List[MediaAssetModel] = []
-
-        chunks = [target_assets[i : i + chunk_size] for i in range(0, len(target_assets), chunk_size)]
-
-        for chunk_idx, chunk in enumerate(chunks):
-            visual_paths = [self.get_visual_path(a) for a in chunk]
-            est_tokens = len(visual_paths) * 800
-
-            vlm_results, model_used = await model_router.execute_task(
-                task_type=TaskType.VISION_BATCH,
-                prompt_payload=visual_paths,
-                estimated_tokens=est_tokens,
-                cloud_caller=gemini_client.analyze_image_batch,
-                local_fallback=qwen_vlm.describe_and_score_batch
-            )
-
-            logger.info(f"[Indexer] Indexed batch {chunk_idx+1}/{len(chunks)} ({len(chunk)} media items) using: {model_used}")
-
-            for idx, asset in enumerate(chunk):
-                p = Path(asset.file_path)
-                analysis = vlm_results[idx] if idx < len(vlm_results) else {
-                    "caption": f"Scene: {p.stem}",
-                    "tags": ["travel"],
-                    "quality_score": 7.0
-                }
-                emb = self.generate_clip_embedding(analysis["caption"])
-
-                if asset.media_type == "video":
-                    segs = self.extract_video_subsegments(asset.id, p, asset.duration_sec)
-                    with db.get_connection() as conn:
-                        for s in segs:
-                            conn.execute(
-                                """
-                                INSERT OR REPLACE INTO video_segments (id, asset_id, start_time, end_time, motion_score, description, embedding)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """,
-                                (s.id, s.asset_id, s.start_time, s.end_time, s.motion_score, s.description,
-                                 np.array(s.embedding, dtype=np.float32).tobytes() if s.embedding else None)
-                            )
-
-                updated = db.update_media_asset(asset.id, {
-                    "caption": analysis["caption"],
-                    "tags": analysis["tags"],
-                    "quality_score": analysis["quality_score"],
-                    "embedding": emb,
-                    "is_indexed": True,
-                    "indexed_by_model": model_used
-                })
-                if updated:
-                    indexed_results.append(updated)
-                processed_count += 1
-
-            if progress_callback:
-                pct = (processed_count / total_count) * 100.0
-                cb = progress_callback(
-                    f"Indexed {processed_count}/{total_count} files via {model_used}",
-                    pct
-                )
-                if asyncio.iscoroutine(cb):
-                    await cb
-
-        return indexed_results
-
-    async def reindex_single_asset(self, project_id: str, asset_id: str) -> Optional[MediaAssetModel]:
-        asset = db.get_asset(asset_id)
-        if not asset:
-            return None
-
-        p = Path(asset.file_path)
-        if not p.exists():
-            raise FileNotFoundError(f"Media file not found at {asset.file_path}")
-
-        visual_path = self.get_visual_path(asset)
-        vlm_results, model_used = await model_router.execute_task(
-            task_type=TaskType.VISION_BATCH,
-            prompt_payload=[visual_path],
-            estimated_tokens=800,
-            cloud_caller=gemini_client.analyze_image_batch,
-            local_fallback=qwen_vlm.describe_and_score_batch
-        )
-        analysis = vlm_results[0] if vlm_results else {
-            "caption": f"Scene: {p.stem}",
-            "tags": ["travel"],
-            "quality_score": 7.5
-        }
-        emb = self.generate_clip_embedding(analysis["caption"])
-
-        if asset.media_type == "video":
-            segs = self.extract_video_subsegments(asset.id, p, asset.duration_sec)
-            with db.get_connection() as conn:
-                for s in segs:
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO video_segments (id, asset_id, start_time, end_time, motion_score, description, embedding)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (s.id, s.asset_id, s.start_time, s.end_time, s.motion_score, s.description,
-                         np.array(s.embedding, dtype=np.float32).tobytes() if s.embedding else None)
-                    )
-
-        return db.update_media_asset(asset.id, {
-            "caption": analysis["caption"],
-            "tags": analysis["tags"],
-            "quality_score": analysis["quality_score"],
-            "embedding": emb,
-            "is_indexed": True,
-            "indexed_by_model": model_used
-        })
 
     def match_capture_time_to_day(self, capture_time: Optional[str], diary_days: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Matches a media capture timestamp to an active diary day."""
@@ -469,7 +605,6 @@ class MediaIndexer:
         updated_count = 0
         for asset in assets:
             matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
-            # Retain non-day/date tags
             clean_tags = [t for t in asset.tags if not t.startswith("day:") and not t.startswith("date:")]
             if matched_day:
                 clean_tags.append(f"day:Day {matched_day.get('day_number', 1)}")
@@ -482,32 +617,220 @@ class MediaIndexer:
             updated_count += 1
         return updated_count
 
+    async def index_pending_assets(
+        self,
+        project_id: str,
+        asset_ids: Optional[List[str]] = None,
+        batch_size: Optional[int] = None,
+        progress_callback: Optional[Callable[[str, float], Any]] = None
+    ) -> List[MediaAssetModel]:
+        """
+        Step 2: Executes AI indexing on non-indexed or selected assets (both photos and videos)
+        using SigLIP 2 scoring + Qwen 3.5 1-sentence captioning.
+        """
+        all_assets = db.get_project_assets(project_id)
+        if asset_ids:
+            target_assets = [a for a in all_assets if a.id in asset_ids]
+        else:
+            target_assets = [a for a in all_assets if not a.is_indexed]
+
+        if not target_assets:
+            logger.info("No pending unindexed assets to process.")
+            return []
+
+        settings = get_settings()
+        full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        project = db.get_project(project_id)
+        diary_days = (project.config_override or {}).get("diary_days", []) if project else []
+
+        chunk_size = batch_size or settings.google_ai.batch_size or 20
+        total_count = len(target_assets)
+        processed_count = 0
+        indexed_results: List[MediaAssetModel] = []
+
+        chunks = [target_assets[i : i + chunk_size] for i in range(0, len(target_assets), chunk_size)]
+
+        for chunk_idx, chunk in enumerate(chunks):
+            # For each asset, prepare the representative visual path
+            visual_paths: List[Path] = []
+            video_segments_bundle: Dict[str, List[VideoSegmentModel]] = {}
+
+            for asset in chunk:
+                matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+                day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
+                day_log_emb = day_embs.get(day_key) if day_key else None
+
+                if asset.media_type == "video":
+                    shot_window = getattr(settings.indexing, "video_shot_window_sec", 3)
+                    segs, rep_frame_path = self.process_video_and_extract_segments(
+                        asset=asset,
+                        full_log_emb=full_log_emb,
+                        day_log_emb=day_log_emb,
+                        window_sec=shot_window
+                    )
+                    video_segments_bundle[asset.id] = segs
+                    visual_paths.append(rep_frame_path)
+                else:
+                    visual_paths.append(self.get_visual_path(asset))
+
+            est_tokens = len(visual_paths) * 600
+
+            import time
+            t0 = time.perf_counter()
+
+            vlm_results, model_used = await model_router.execute_task(
+                task_type=TaskType.VISION_BATCH,
+                prompt_payload=visual_paths,
+                estimated_tokens=est_tokens,
+                cloud_caller=gemini_client.analyze_image_batch,
+                local_fallback=qwen_vlm.describe_and_score_batch
+            )
+
+            t1 = time.perf_counter()
+            elapsed_sec = t1 - t0
+            avg_per_item = elapsed_sec / len(visual_paths) if visual_paths else 0
+
+            logger.info(f"[Indexer] Indexed batch {chunk_idx+1}/{len(chunks)} ({len(chunk)} media items) using: {model_used} in {elapsed_sec:.2f}s (avg {avg_per_item:.2f}s/item)")
+
+            for idx, asset in enumerate(chunk):
+                p = Path(asset.file_path)
+                analysis = vlm_results[idx] if idx < len(vlm_results) else {
+                    "caption": f"Scene: {p.stem}",
+                    "tags": ["travel"],
+                    "quality_score": 7.0
+                }
+                
+                # Compute SigLIP 2 embedding for the asset (once)
+                emb = self.generate_siglip_embedding(visual_paths[idx] if visual_paths[idx].exists() else analysis["caption"])
+
+                matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+                day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
+                day_log_emb = day_embs.get(day_key) if day_key else None
+
+                rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else 0.65
+                rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
+
+                if asset.media_type == "video" and asset.id in video_segments_bundle:
+                    segs = video_segments_bundle[asset.id]
+                    for s_idx, s in enumerate(segs):
+                        s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
+                    db.save_video_segments(segs)
+                    if segs:
+                        seg_rel_avg = float(np.mean([s.relevance_score for s in segs if s.relevance_score > 0] or [0.65]))
+                        rel_daily = round(seg_rel_avg, 3)
+
+                updated = db.update_media_asset(asset.id, {
+                    "caption": analysis["caption"],
+                    "tags": analysis["tags"],
+                    "quality_score": analysis["quality_score"],
+                    "relevance_score_daily": rel_daily,
+                    "relevance_score_overall": rel_overall,
+                    "embedding": emb,
+                    "is_indexed": True,
+                    "indexed_by_model": model_used
+                })
+                if updated:
+                    indexed_results.append(updated)
+                processed_count += 1
+
+            if progress_callback:
+                pct = (processed_count / total_count) * 100.0
+                cb = progress_callback(
+                    f"Indexed {processed_count}/{total_count} files via {model_used}",
+                    pct
+                )
+                if asyncio.iscoroutine(cb):
+                    await cb
+
+        return indexed_results
+
+    async def reindex_single_asset(self, project_id: str, asset_id: str) -> Optional[MediaAssetModel]:
+        asset = db.get_asset(asset_id)
+        if not asset:
+            return None
+
+        p = Path(asset.file_path)
+        if not p.exists():
+            raise FileNotFoundError(f"Media file not found at {asset.file_path}")
+
+        full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        project = db.get_project(project_id)
+        diary_days = (project.config_override or {}).get("diary_days", []) if project else []
+        matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+        day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
+        day_log_emb = day_embs.get(day_key) if day_key else None
+
+        if asset.media_type == "video":
+            shot_window = getattr(self.settings.indexing, "video_shot_window_sec", 3)
+            segs, visual_path = self.process_video_and_extract_segments(
+                asset=asset,
+                full_log_emb=full_log_emb,
+                day_log_emb=day_log_emb,
+                window_sec=shot_window
+            )
+        else:
+            segs = []
+            visual_path = self.get_visual_path(asset)
+
+        vlm_results, model_used = await model_router.execute_task(
+            task_type=TaskType.VISION_BATCH,
+            prompt_payload=[visual_path],
+            estimated_tokens=600,
+            cloud_caller=gemini_client.analyze_image_batch,
+            local_fallback=qwen_vlm.describe_and_score_batch
+        )
+        analysis = vlm_results[0] if vlm_results else {
+            "caption": f"Scene: {p.stem}",
+            "tags": ["travel"],
+            "quality_score": 7.5
+        }
+        emb = self.generate_siglip_embedding(visual_path if visual_path.exists() else analysis["caption"])
+
+        rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else 0.65
+        rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
+
+        if asset.media_type == "video" and segs:
+            for s_idx, s in enumerate(segs):
+                s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
+            db.save_video_segments(segs)
+            seg_rel_avg = float(np.mean([s.relevance_score for s in segs if s.relevance_score > 0] or [0.65]))
+            rel_daily = round(seg_rel_avg, 3)
+
+        return db.update_media_asset(asset.id, {
+            "caption": analysis["caption"],
+            "tags": analysis["tags"],
+            "quality_score": analysis["quality_score"],
+            "relevance_score_daily": rel_daily,
+            "relevance_score_overall": rel_overall,
+            "embedding": emb,
+            "is_indexed": True,
+            "indexed_by_model": model_used
+        })
 
     def index_media_file(self, project_id: str, file_path: Path) -> MediaAssetModel:
-        """Legacy synchronous helper for single file tests/scripts."""
+        """Legacy helper for synchronous single file tests/scripts."""
         staged = self.stage_media_files(project_id, [file_path])
         asset = staged[0]
         vlm_res = qwen_vlm.describe_and_score(file_path)
-        emb = self.generate_clip_embedding(vlm_res["caption"])
+        emb = self.generate_siglip_embedding(vlm_res["caption"])
+
+        full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        rel_daily = round(self.cosine_similarity(emb, None), 3)
+        rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
 
         if asset.media_type == "video":
-            segs = self.extract_video_subsegments(asset.id, file_path, asset.duration_sec)
-            with db.get_connection() as conn:
-                for s in segs:
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO video_segments (id, asset_id, start_time, end_time, motion_score, description, embedding)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (s.id, s.asset_id, s.start_time, s.end_time, s.motion_score, s.description,
-                         np.array(s.embedding, dtype=np.float32).tobytes() if s.embedding else None)
-                    )
+            segs, _ = self.process_video_and_extract_segments(asset, full_log_emb, None)
+            db.save_video_segments(segs)
+            if segs:
+                rel_daily = round(float(np.mean([s.relevance_score for s in segs])), 3)
 
         target_model = getattr(self.settings.indexing, "local_model", "qwen3.5-4b") or "qwen3.5-4b"
         return db.update_media_asset(asset.id, {
             "caption": vlm_res["caption"],
             "tags": vlm_res["tags"],
             "quality_score": vlm_res["quality_score"],
+            "relevance_score_daily": rel_daily,
+            "relevance_score_overall": rel_overall,
             "embedding": emb,
             "is_indexed": True,
             "indexed_by_model": f"local-{target_model}"
@@ -532,4 +855,3 @@ class MediaIndexer:
 
 media_indexer = MediaIndexer()
 indexer = media_indexer
-

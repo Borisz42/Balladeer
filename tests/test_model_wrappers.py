@@ -25,6 +25,45 @@ def test_qwen_vlm_heuristic(monkeypatch):
     assert "caption" in res
     assert "tags" in res
     assert 1.0 <= res["quality_score"] <= 10.0
+    assert "embedding" not in res  # Embedding must only be computed once in the indexer
+
+def test_qwen_vlm_markdown_fenced_json(monkeypatch):
+    class MockMarkdownLlama:
+        def create_chat_completion(self, messages, max_tokens=512, temperature=0.1):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '```json\n{\n  "caption": "A couple poses together in a sunny art gallery with paintings.",\n  "tags": ["couple", "gallery", "art"],\n  "quality_score": 8.7\n}\n```'
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(qwen_vlm, "_get_llm", lambda: MockMarkdownLlama())
+    res = qwen_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
+    assert res["caption"] == "A couple poses together in a sunny art gallery with paintings."
+    assert "gallery" in res["tags"]
+    assert res["quality_score"] == 8.7
+
+def test_qwen_vlm_malformed_fence_fallback(monkeypatch):
+    class MockTruncatedLlama:
+        def create_chat_completion(self, messages, max_tokens=512, temperature=0.1):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "```json\n"
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(qwen_vlm, "_get_llm", lambda: MockTruncatedLlama())
+    res = qwen_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
+    assert res["caption"].startswith("Travel scene:")
+    assert not res["caption"].startswith("```")
+    assert len(res["caption"]) > 8
 
 def test_minimax_music_engine():
     stems = minimax_music.generate(

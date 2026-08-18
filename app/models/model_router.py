@@ -130,23 +130,18 @@ class IntelligentModelRouter:
 
 
     async def _execute_local(self, task_type: TaskType, payload: Any, custom_fallback: Optional[Callable] = None) -> Any:
-        if custom_fallback:
-            res = custom_fallback(payload)
-            if asyncio.iscoroutine(res):
-                return await res
-            return res
+        func = custom_fallback
+        if not func:
+            if task_type == TaskType.VISION_BATCH and self.local_vlm_fallback:
+                func = self.local_vlm_fallback
+            elif task_type == TaskType.STORY_LYRICS and self.local_story_fallback:
+                func = self.local_story_fallback
 
-        if task_type == TaskType.VISION_BATCH and self.local_vlm_fallback:
-            res = self.local_vlm_fallback(payload)
-            if asyncio.iscoroutine(res):
-                return await res
-            return res
-
-        if task_type == TaskType.STORY_LYRICS and self.local_story_fallback:
-            res = self.local_story_fallback(payload)
-            if asyncio.iscoroutine(res):
-                return await res
-            return res
+        if func:
+            if asyncio.iscoroutinefunction(func):
+                return await func(payload)
+            # Offload heavy synchronous GPU / CPU execution to worker thread
+            return await asyncio.to_thread(func, payload)
 
         raise RuntimeError(f"No local fallback registered for task {task_type}")
 

@@ -191,13 +191,38 @@ export default function AssetGallery({
                     </div>
                   )}
 
-                  {/* Quality Score Badge */}
+                  {/* Quality & Relevance Score Badges */}
                   {asset.is_indexed && (
-                    <div
-                      className={`absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border flex items-center gap-0.5 shadow ${qualityColor}`}
-                    >
-                      <Star className="w-2.5 h-2.5 fill-current" />
-                      {asset.quality_score?.toFixed(1)}
+                    <div className="absolute top-1.5 right-1.5 flex flex-col items-end gap-1">
+                      <div
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border flex items-center gap-0.5 shadow ${qualityColor}`}
+                        title="Cinematic Quality Score"
+                      >
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                        {asset.quality_score?.toFixed(1)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dual Relevance Badges (Top-Left) */}
+                  {asset.is_indexed && (asset.relevance_score_daily > 0 || asset.relevance_score_overall > 0) && (
+                    <div className="absolute top-1.5 left-1.5 flex flex-col gap-0.5 pointer-events-none">
+                      {asset.relevance_score_daily > 0 && (
+                        <div
+                          className="px-1.5 py-0.5 rounded bg-cyan-950/85 backdrop-blur-sm border border-cyan-500/40 text-[9px] font-mono font-bold text-cyan-300 shadow"
+                          title="Relevance to matched diary day"
+                        >
+                          Day: {Math.round((asset.relevance_score_daily || 0) * 100)}%
+                        </div>
+                      )}
+                      {asset.relevance_score_overall > 0 && (
+                        <div
+                          className="px-1.5 py-0.5 rounded bg-purple-950/85 backdrop-blur-sm border border-purple-500/40 text-[9px] font-mono font-bold text-purple-300 shadow"
+                          title="Relevance to full trip narrative"
+                        >
+                          Trip: {Math.round((asset.relevance_score_overall || 0) * 100)}%
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -222,11 +247,18 @@ export default function AssetGallery({
                     </p>
                     
                     {/* Model Attribution Chip */}
-                    <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-slate-400 truncate">
-                      <Cpu className="w-2.5 h-2.5 text-teal-400 shrink-0" />
-                      <span className="truncate text-teal-300">
-                        {asset.indexed_by_model || (asset.is_indexed ? 'AI Indexed' : 'Pending')}
-                      </span>
+                    <div className="mt-1 flex items-center justify-between gap-1 text-[9px] font-mono text-slate-400">
+                      <div className="flex items-center gap-1 truncate">
+                        <Cpu className="w-2.5 h-2.5 text-teal-400 shrink-0" />
+                        <span className="truncate text-teal-300">
+                          {asset.indexed_by_model || (asset.is_indexed ? 'AI Indexed' : 'Pending')}
+                        </span>
+                      </div>
+                      {isVideo && (
+                        <span className="text-cyan-400 shrink-0 font-bold">
+                          {asset.duration_sec ? `${asset.duration_sec.toFixed(0)}s` : ''}
+                        </span>
+                      )}
                     </div>
                   </div>
 

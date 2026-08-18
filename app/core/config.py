@@ -72,7 +72,8 @@ class IndexingSettings(BaseModel):
     vlm_quant: str = "Q4_K_M"
     quality_threshold: float = 6.0
     scene_detection_threshold: float = 0.3
-    clip_model: str = "sentence-transformers/clip-ViT-B-32"
+    siglip_model: str = "google/siglip2-base-patch16-224"
+    video_shot_window_sec: int = 3
     fallback_to_heuristic: bool = True
     batch_size: int = 20
     max_parallel_workers: int = 4
@@ -116,7 +117,7 @@ class VideoSettings(BaseModel):
 class HuggingFaceSettings(BaseModel):
     api_key: str = ""
     vlm_model_id: str = "unsloth/Qwen3.5-4B-GGUF"
-    clip_model_id: str = "sentence-transformers/clip-ViT-B-32"
+    siglip_model_id: str = "google/siglip2-base-patch16-224"
 
 class BalladeerSettings(BaseSettings):
     project_root: Path = Field(default_factory=get_root_dir)

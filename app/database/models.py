@@ -19,9 +19,11 @@ class MediaAssetModel(BaseModel):
     capture_time: Optional[str] = None
     duration_sec: float = 0.0
     quality_score: float = 7.0 # 1.0 - 10.0
+    relevance_score_daily: float = 0.0 # 0.0 - 1.0 (relevance to matched diary day)
+    relevance_score_overall: float = 0.0 # 0.0 - 1.0 (relevance to overall travel narrative)
     caption: str = ""
     tags: List[str] = Field(default_factory=list)
-    embedding: Optional[List[float]] = None # 512-dim float vector
+    embedding: Optional[List[float]] = None # 768-dim float vector (SigLIP 2)
     is_active: bool = True
     is_indexed: bool = False
     indexed_by_model: Optional[str] = None
@@ -33,9 +35,13 @@ class VideoSegmentModel(BaseModel):
     asset_id: str
     start_time: float
     end_time: float
-    motion_score: float = 0.5
+    motion_score: float = 0.5 # Composite score S = 0.7 S_rel + 0.3 S_aes
+    relevance_score: float = 0.0 # Visual relevance to travel log
+    best_shot_start: float = 0.0 # Best n-sec shot start timestamp
+    best_shot_end: float = 0.0 # Best n-sec shot end timestamp
     description: str = ""
     embedding: Optional[List[float]] = None
+    frame_scores: Optional[str] = None # JSON string of per-second [{t, s_rel, s_aes, s_comp}]
 
 class AlignedWordModel(BaseModel):
     word: str

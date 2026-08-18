@@ -53,12 +53,13 @@ def get_models_status() -> Dict[str, Any]:
                     is_cached = True
                     cached_path = str(p)
                     break
-        elif key == "clip-vit":
-            clip_candidates = [
-                hf_hub_dir / "models--sentence-transformers--clip-ViT-B-32",
-                local_weights_dir / "clip-vit"
+        elif key == "siglip2":
+            repo_slug = "models--" + info["repo_id"].replace("/", "--")
+            siglip_candidates = [
+                hf_hub_dir / repo_slug,
+                local_weights_dir / "siglip2"
             ]
-            for p in clip_candidates:
+            for p in siglip_candidates:
                 if p.exists():
                     is_cached = True
                     cached_path = str(p)

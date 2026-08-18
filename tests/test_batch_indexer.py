@@ -54,7 +54,7 @@ def test_parallel_batch_indexing():
             assert len(assets) == len(existing_files)
             for a in assets:
                 assert a.project_id == proj_id
-                assert len(a.embedding) == 512
+                assert len(a.embedding) == 768
                 assert a.quality_score >= 1.0
                 assert a.is_indexed is True
                 assert a.indexed_by_model is not None

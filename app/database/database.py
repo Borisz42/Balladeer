@@ -61,6 +61,8 @@ class Database:
                 capture_time TIMESTAMP,
                 duration_sec REAL DEFAULT 0.0,
                 quality_score REAL DEFAULT 7.0,
+                relevance_score_daily REAL DEFAULT 0.0,
+                relevance_score_overall REAL DEFAULT 0.0,
                 caption TEXT,
                 tags TEXT,
                 embedding BLOB,
@@ -77,8 +79,12 @@ class Database:
                 start_time REAL NOT NULL,
                 end_time REAL NOT NULL,
                 motion_score REAL DEFAULT 0.5,
+                relevance_score REAL DEFAULT 0.0,
+                best_shot_start REAL DEFAULT 0.0,
+                best_shot_end REAL DEFAULT 0.0,
                 description TEXT,
-                embedding BLOB
+                embedding BLOB,
+                frame_scores TEXT
             );
 
             CREATE TABLE IF NOT EXISTS audio_tracks (
@@ -112,15 +118,21 @@ class Database:
             );
             """)
 
-            # Migration: Ensure columns exist if table was already created
-            try:
-                conn.execute("ALTER TABLE media_assets ADD COLUMN is_indexed INTEGER DEFAULT 0;")
-            except Exception:
-                pass
-            try:
-                conn.execute("ALTER TABLE media_assets ADD COLUMN indexed_by_model TEXT;")
-            except Exception:
-                pass
+            # Migrations: Ensure columns exist if table was already created
+            for mig in [
+                "ALTER TABLE media_assets ADD COLUMN is_indexed INTEGER DEFAULT 0;",
+                "ALTER TABLE media_assets ADD COLUMN indexed_by_model TEXT;",
+                "ALTER TABLE media_assets ADD COLUMN relevance_score_daily REAL DEFAULT 0.0;",
+                "ALTER TABLE media_assets ADD COLUMN relevance_score_overall REAL DEFAULT 0.0;",
+                "ALTER TABLE video_segments ADD COLUMN relevance_score REAL DEFAULT 0.0;",
+                "ALTER TABLE video_segments ADD COLUMN best_shot_start REAL DEFAULT 0.0;",
+                "ALTER TABLE video_segments ADD COLUMN best_shot_end REAL DEFAULT 0.0;",
+                "ALTER TABLE video_segments ADD COLUMN frame_scores TEXT;",
+            ]:
+                try:
+                    conn.execute(mig)
+                except Exception:
+                    pass
 
     # Project Operations
     def create_project(self, project: ProjectModel) -> ProjectModel:
@@ -223,6 +235,9 @@ class Database:
         asset_id: str,
         tags: Optional[List[str]] = None,
         caption: Optional[str] = None,
+        quality_score: Optional[float] = None,
+        relevance_score_daily: Optional[float] = None,
+        relevance_score_overall: Optional[float] = None,
         is_active: Optional[bool] = None
     ) -> None:
         fields = []
@@ -233,6 +248,15 @@ class Database:
         if caption is not None:
             fields.append("caption = ?")
             values.append(caption)
+        if quality_score is not None:
+            fields.append("quality_score = ?")
+            values.append(quality_score)
+        if relevance_score_daily is not None:
+            fields.append("relevance_score_daily = ?")
+            values.append(relevance_score_daily)
+        if relevance_score_overall is not None:
+            fields.append("relevance_score_overall = ?")
+            values.append(relevance_score_overall)
         if is_active is not None:
             fields.append("is_active = ?")
             values.append(1 if is_active else 0)
@@ -248,8 +272,8 @@ class Database:
             conn.execute(
                 """
                 INSERT INTO media_assets 
-                (id, project_id, file_path, media_type, capture_time, duration_sec, quality_score, caption, tags, embedding, is_active, is_indexed, indexed_by_model, width, height)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, project_id, file_path, media_type, capture_time, duration_sec, quality_score, relevance_score_daily, relevance_score_overall, caption, tags, embedding, is_active, is_indexed, indexed_by_model, width, height)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     project_id=excluded.project_id,
                     file_path=excluded.file_path,
@@ -257,6 +281,8 @@ class Database:
                     capture_time=excluded.capture_time,
                     duration_sec=excluded.duration_sec,
                     quality_score=excluded.quality_score,
+                    relevance_score_daily=excluded.relevance_score_daily,
+                    relevance_score_overall=excluded.relevance_score_overall,
                     caption=excluded.caption,
                     tags=excluded.tags,
                     embedding=excluded.embedding,
@@ -274,6 +300,8 @@ class Database:
                     asset.capture_time,
                     asset.duration_sec,
                     asset.quality_score,
+                    asset.relevance_score_daily,
+                    asset.relevance_score_overall,
                     asset.caption,
                     json.dumps(asset.tags),
                     vector_to_blob(asset.embedding) if asset.embedding else None,
@@ -308,7 +336,9 @@ class Database:
                     media_type=row["media_type"],
                     capture_time=str(row["capture_time"]) if row["capture_time"] else None,
                     duration_sec=row["duration_sec"] or 0.0,
-                    quality_score=row["quality_score"] or 7.0,
+                    quality_score=row["quality_score"] if row["quality_score"] is not None else 7.0,
+                    relevance_score_daily=row["relevance_score_daily"] or 0.0 if "relevance_score_daily" in row.keys() else 0.0,
+                    relevance_score_overall=row["relevance_score_overall"] or 0.0 if "relevance_score_overall" in row.keys() else 0.0,
                     caption=row["caption"] or "",
                     tags=json.loads(row["tags"]) if row["tags"] else [],
                     embedding=blob_to_vector(row["embedding"]),
@@ -333,7 +363,9 @@ class Database:
                 media_type=row["media_type"],
                 capture_time=str(row["capture_time"]) if row["capture_time"] else None,
                 duration_sec=row["duration_sec"] or 0.0,
-                quality_score=row["quality_score"] or 7.0,
+                quality_score=row["quality_score"] if row["quality_score"] is not None else 7.0,
+                relevance_score_daily=row["relevance_score_daily"] or 0.0 if "relevance_score_daily" in row.keys() else 0.0,
+                relevance_score_overall=row["relevance_score_overall"] or 0.0 if "relevance_score_overall" in row.keys() else 0.0,
                 caption=row["caption"] or "",
                 tags=json.loads(row["tags"]) if row["tags"] else [],
                 embedding=blob_to_vector(row["embedding"]),
@@ -343,6 +375,62 @@ class Database:
                 width=row["width"],
                 height=row["height"]
             )
+
+    # Video Segment Operations
+    def save_video_segments(self, segments: List[VideoSegmentModel]) -> None:
+        with self.get_connection() as conn:
+            for s in segments:
+                conn.execute(
+                    """
+                    INSERT INTO video_segments
+                    (id, asset_id, start_time, end_time, motion_score, relevance_score, best_shot_start, best_shot_end, description, embedding, frame_scores)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        asset_id=excluded.asset_id,
+                        start_time=excluded.start_time,
+                        end_time=excluded.end_time,
+                        motion_score=excluded.motion_score,
+                        relevance_score=excluded.relevance_score,
+                        best_shot_start=excluded.best_shot_start,
+                        best_shot_end=excluded.best_shot_end,
+                        description=excluded.description,
+                        embedding=excluded.embedding,
+                        frame_scores=excluded.frame_scores
+                    """,
+                    (
+                        s.id,
+                        s.asset_id,
+                        s.start_time,
+                        s.end_time,
+                        s.motion_score,
+                        s.relevance_score,
+                        s.best_shot_start,
+                        s.best_shot_end,
+                        s.description,
+                        vector_to_blob(s.embedding) if s.embedding else None,
+                        s.frame_scores
+                    )
+                )
+
+    def get_video_segments(self, asset_id: str) -> List[VideoSegmentModel]:
+        with self.get_connection() as conn:
+            rows = conn.execute("SELECT * FROM video_segments WHERE asset_id = ? ORDER BY start_time ASC", (asset_id,)).fetchall()
+            return [
+                VideoSegmentModel(
+                    id=row["id"],
+                    asset_id=row["asset_id"],
+                    start_time=row["start_time"],
+                    end_time=row["end_time"],
+                    motion_score=row["motion_score"] if row["motion_score"] is not None else 0.5,
+                    relevance_score=row["relevance_score"] or 0.0 if "relevance_score" in row.keys() else 0.0,
+                    best_shot_start=row["best_shot_start"] or row["start_time"] if "best_shot_start" in row.keys() else row["start_time"],
+                    best_shot_end=row["best_shot_end"] or row["end_time"] if "best_shot_end" in row.keys() else row["end_time"],
+                    description=row["description"] or "",
+                    embedding=blob_to_vector(row["embedding"]),
+                    frame_scores=row["frame_scores"] if "frame_scores" in row.keys() else None
+                )
+                for row in rows
+            ]
 
     # Audio Track Operations
     def save_audio_track(self, track: AudioTrackModel) -> AudioTrackModel:

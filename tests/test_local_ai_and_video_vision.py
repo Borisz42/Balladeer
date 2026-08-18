@@ -4,14 +4,14 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from app.models.qwen_vlm import qwen_vlm
-from app.models.clip_embedder import clip_embedder
+from app.models.siglip_embedder import siglip_embedder
 from app.pipeline.indexer import MediaIndexer
 from app.database.database import db
 from app.database.models import ProjectModel, MediaAssetModel
 from app.core.config import get_settings
 
 class MockChatLlama:
-    def create_chat_completion(self, messages, max_tokens=256):
+    def create_chat_completion(self, messages, max_tokens=256, temperature=0.1):
         return {
             "choices": [
                 {
@@ -49,8 +49,8 @@ def test_local_ai_photo_vision_semantic_quality():
         assert isinstance(quality, float)
         assert 1.0 <= quality <= 10.0
 
-        emb = clip_embedder.encode(photo)
-        assert len(emb) == 512
+        emb = siglip_embedder.encode(photo)
+        assert len(emb) == 768
         assert abs(sum(x*x for x in emb) - 1.0) < 0.01
 
 def test_local_ai_video_indexing_and_subsegments():

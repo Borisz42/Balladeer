@@ -9,26 +9,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("weight-downloader")
 
 MODELS_INFO = {
-    "clip-vit": {
-        "repo_id": "sentence-transformers/clip-ViT-B-32",
-        "description": "CLIP Visual-Text Embeddings (512-dim)",
-        "ram_gb": 0.6,
-        "vram_gb": 0.4,
+    "siglip2": {
+        "repo_id": "google/siglip2-base-patch16-224",
+        "description": "SigLIP 2 Vision & Text Embeddings (768-dim FP16)",
+        "ram_gb": 1.5,
+        "vram_gb": 1.2,
         "filename": None
     },
-    "qwen3.5-4b": {
-        "repo_id": "unsloth/Qwen3.5-4B-GGUF",
-        "description": "Qwen 3.5 4B Vision & Language Model (Q4_K_M GGUF + MMProj)",
+    "qwen2.5-vl-3b": {
+        "repo_id": "Qwen/Qwen2.5-VL-3B-Instruct",
+        "description": "Qwen 2.5 VL 3B Vision & Language Model",
         "ram_gb": 1.0,
-        "vram_gb": 2.8,
-        "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf", "*mmproj*.gguf", "*.json"]
+        "vram_gb": 3.0,
+        "allow_patterns": ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.yaml"]
     },
     "qwen3.5-9b": {
         "repo_id": "unsloth/Qwen3.5-9B-GGUF",
-        "description": "Qwen 3.5 9B High-Capacity Vision & Language Model (Q4_K_M GGUF + MMProj)",
+        "description": "Qwen 3.5 9B High-Capacity Vision & Language Model (Q4_K_M GGUF + BF16 MMProj)",
         "ram_gb": 2.0,
         "vram_gb": 5.8,
-        "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf", "*mmproj*.gguf", "*.json"]
+        "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf", "*mmproj*BF16*.gguf", "*mmproj*bf16*.gguf", "*.json"]
     },
     "minimax-music3": {
         "repo_id": "infosave/MiniMax-Music-3-cmf",
@@ -68,16 +68,19 @@ def download_model(model_name: str, dest_dir: Path, token: str = None) -> bool:
     torch_hub_dir = Path(os.environ.get("TORCH_HOME", Path.home() / ".cache" / "torch"))
     hf_hub_dir = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface" / "hub"))
 
-    if model_name == "clip-vit":
+    if model_name == "siglip2":
         try:
-            from sentence_transformers import SentenceTransformer
-            SentenceTransformer(info["repo_id"])
-            clip_path = hf_hub_dir / "models--sentence-transformers--clip-ViT-B-32"
+            from transformers import AutoProcessor, AutoModel
+            hf_token = token or os.environ.get("HF_TOKEN")
+            AutoProcessor.from_pretrained(info["repo_id"], token=hf_token)
+            AutoModel.from_pretrained(info["repo_id"], token=hf_token)
+            repo_slug = "models--" + info["repo_id"].replace("/", "--")
+            siglip_path = hf_hub_dir / repo_slug
             logger.info(f"✓ {model_name} successfully cached.")
-            logger.info(f"    [SAVED TO]: {clip_path.resolve() if clip_path.exists() else hf_hub_dir.resolve()}")
+            logger.info(f"    [SAVED TO]: {siglip_path.resolve() if siglip_path.exists() else hf_hub_dir.resolve()}")
             return True
         except Exception as e:
-            logger.warning(f"CLIP fetch note: {e}")
+            logger.warning(f"SigLIP 2 fetch note: {e}")
 
     elif model_name == "mms-fa":
         try:

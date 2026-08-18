@@ -35,7 +35,7 @@ Balladeer is a high-performance hybrid AI video montage engine that transforms t
   * Allows user editing of captions, tags, and quality scores directly in SQLite.
   * Provides 1-click single asset re-indexing.
 * **Video Subsegment & Scene Cut Extraction:** Uses OpenCV and PySceneDetect frame difference algorithms to partition long video recordings into punchy subsegments (`video_segments` table) with motion scores.
-* **Vector Semantic Indexing:** Uses `sentence-transformers/clip-ViT-B-32` to produce 512-dimensional embeddings for visual search, scene clustering, and narrative-lyric alignment.
+* **Vector Semantic Indexing:** Uses `google/siglip2-base-patch16-224` to produce 768-dimensional FP16 embeddings for visual search, scene clustering, and narrative-lyric alignment.
 
 ---
 

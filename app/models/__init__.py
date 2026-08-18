@@ -7,7 +7,7 @@ from app.models.comfy_music_worker import comfy_music_worker, ComfyUIHeadlessWor
 from app.models.demucs_separator import demucs_separator, DemucsSeparator
 from app.models.demucs_wrapper import demucs_separator as demucs_wrapper
 from app.models.mms_aligner import mms_aligner, MMSAligner
-from app.models.clip_embedder import clip_embedder, CLIPEmbedder
+from app.models.siglip_embedder import siglip_embedder, SigLIPEmbedder
 
 __all__ = [
     "model_router",
@@ -29,6 +29,6 @@ __all__ = [
     "demucs_wrapper",
     "mms_aligner",
     "MMSAligner",
-    "clip_embedder",
-    "CLIPEmbedder"
+    "siglip_embedder",
+    "SigLIPEmbedder"
 ]

@@ -137,6 +137,18 @@ export async function reindexAsset(projectId, assetId) {
   return res.json();
 }
 
+export async function fetchAssetSegments(projectId, assetId) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/assets/${assetId}/segments`);
+  if (!res.ok) throw new Error('Failed to fetch video segments');
+  return res.json();
+}
+
+export async function fetchAssetFrameScores(projectId, assetId) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/assets/${assetId}/frame-scores`);
+  if (!res.ok) throw new Error('Failed to fetch frame scores');
+  return res.json();
+}
+
 export async function generateMusic(projectId, { prompt, bpm, durationSec, is_instrumental, enable_local_synthesis } = {}) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/generate-music`, {
     method: 'POST',
