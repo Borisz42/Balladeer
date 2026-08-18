@@ -163,8 +163,10 @@ class QwenVLMRunner:
     def _build_meta_context(self, metadata: Optional[Union[Dict[str, Any], str]]) -> str:
         if isinstance(metadata, dict):
             parts = []
-            if metadata.get("gps_lat") and metadata.get("gps_lon"):
-                parts.append(f"Location: {metadata['gps_lat']}°, {metadata['gps_lon']}°")
+            from app.core.geocoder import format_location_context
+            loc = format_location_context(metadata)
+            if loc:
+                parts.append(f"Location: {loc}")
             if metadata.get("capture_time"):
                 parts.append(f"Time: {metadata['capture_time']}")
             if parts:
@@ -174,7 +176,7 @@ class QwenVLMRunner:
         return ""
 
     def _parse_vlm_text_or_json(self, raw_text: str, default_caption: str) -> Tuple[str, List[str], float]:
-        """Strips think blocks, markdown fencing, and parses caption, tags, and optional quality."""
+        """Strips think blocks, markdown fencing, cleans coordinates, and parses caption, tags, and optional quality."""
         cleaned = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
         if "<think>" in cleaned:
             cleaned = cleaned.split("</think>")[-1].strip()
@@ -208,6 +210,15 @@ class QwenVLMRunner:
                     caption = candidate
 
         final_cap = caption if caption else default_caption
+
+        # Clean out any leftover raw coordinates or timestamps
+        final_cap = re.sub(r",?\s*(?:at|near)?\s*coordinates?\s*[-+]?\d+\.\d+°?\s*(?:latitude|lat)?\s*(?:and|,)?\s*[-+]?\d+\.\d+°?\s*(?:longitude|lon)?", "", final_cap, flags=re.IGNORECASE)
+        final_cap = re.sub(r"\s+at\s+[-+]?\d+\.\d+°?,\s*[-+]?\d+\.\d+°?", "", final_cap, flags=re.IGNORECASE)
+        final_cap = re.sub(r"\s*,\s*with a timestamp of.*$", ".", final_cap, flags=re.IGNORECASE)
+        final_cap = re.sub(r"\s{2,}", " ", final_cap).strip(" ,.")
+        if final_cap and not final_cap.endswith("."):
+            final_cap += "."
+
         if not tags:
             tags = self._extract_tags(final_cap)
         else:
@@ -370,7 +381,7 @@ class QwenVLMRunner:
         clean_name = stem.capitalize() if not re.match(r"^\d+$", stem) else "Travel scene"
         default_caption = f"Travel scene: {clean_name}"
         meta_context = self._build_meta_context(metadata)
-        prompt_text = f"Describe what is shown in this travel scene concisely in one factual sentence without introductory filler.{meta_context}"
+        prompt_text = f"Describe what is shown in this travel scene concisely in one factual sentence without introductory filler or coordinates.{meta_context}"
 
         model, processor = self._get_model_and_processor()
         if model is not None and processor is not None and img_rgb is not None:
@@ -420,7 +431,7 @@ class QwenVLMRunner:
             clean_name = stem.capitalize() if not re.match(r"^\d+$", stem) else "Travel scene"
             default_caption = f"Travel scene: {clean_name}"
             meta_context = self._build_meta_context(meta)
-            prompt_text = f"Describe what is shown in this travel scene concisely in one factual sentence without introductory filler.{meta_context}"
+            prompt_text = f"Describe what is shown in this travel scene concisely in one factual sentence without introductory filler or coordinates.{meta_context}"
 
             prepared_items.append({
                 "path": p,

@@ -196,6 +196,17 @@ class MediaIndexer:
                                 meta["gps_alt"] = round(float(alt_raw), 1)
                             except Exception:
                                 pass
+
+                    # Offline reverse geocoding to City, Country
+                    if meta.get("gps_lat") and meta.get("gps_lon"):
+                        from app.core.geocoder import reverse_geocode
+                        geo = reverse_geocode(meta["gps_lat"], meta["gps_lon"])
+                        if geo:
+                            meta["city"] = geo.get("city")
+                            meta["admin1"] = geo.get("admin1")
+                            meta["country"] = geo.get("country")
+                            meta["country_code"] = geo.get("country_code")
+                            meta["location_name"] = geo.get("location_str")
         except Exception as e:
             logger.warning(f"Could not parse EXIF for {image_path.name}: {e}")
 
@@ -207,7 +218,9 @@ class MediaIndexer:
         if meta["width"] and meta["height"]:
             ratio = "Landscape" if meta["width"] > meta["height"] else ("Portrait" if meta["height"] > meta["width"] else "Square")
             summary_parts.append(f"{meta['width']}x{meta['height']} ({ratio})")
-        if meta["gps_lat"] and meta["gps_lon"]:
+        if meta.get("location_name"):
+            summary_parts.append(f"Location: {meta['location_name']}")
+        elif meta.get("gps_lat") and meta.get("gps_lon"):
             summary_parts.append(f"GPS: {meta['gps_lat']}°, {meta['gps_lon']}°")
         if meta["camera_make"] or meta["camera_model"]:
             cam = f"{meta.get('camera_make') or ''} {meta.get('camera_model') or ''}".strip()
