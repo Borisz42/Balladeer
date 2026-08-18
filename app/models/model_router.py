@@ -171,7 +171,11 @@ class IntelligentModelRouter:
         api_key = settings.google_ai.api_key.strip()
         only_local = settings.google_ai.only_local_ai or not api_key
 
-        active_local_slug = "local-qwen2.5-vl-3b" if task_type == TaskType.VISION_BATCH else "local-qwen3.5-9b"
+        if task_type == TaskType.VISION_BATCH:
+            active_local_slug = "local-qwen2.5-vl-3b"
+        else:
+            from app.models.qwen_llm import qwen_llm
+            active_local_slug = "local-qwen3.5-9b" if qwen_llm._find_gguf_file() else "local-qwen2.5-vl-3b"
 
         if only_local or cloud_caller is None:
             logger.info(f"[Router] [{task_type.value}] Only-Local mode active (only_local_ai={only_local}). Routing directly to {active_local_slug} engine.")

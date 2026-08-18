@@ -137,7 +137,7 @@ export default function Header({
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
               : 'bg-slate-800/90 text-slate-300 border-slate-700 hover:bg-slate-700'
           }`}
-          title={isLocalOnly ? "Exclusively executing on local RTX GPU (Qwen3.5-4B)" : "Click to force 100% offline local AI execution"}
+          title={isLocalOnly ? "Exclusively executing on local RTX GPU (Qwen + SigLIP 2)" : "Click to force 100% offline local AI execution"}
         >
           <Shield className={`w-3.5 h-3.5 ${isLocalOnly ? 'text-amber-400' : 'text-teal-400'}`} />
           <span>{isLocalOnly ? 'Local AI Only' : 'Cloud Waterfall'}</span>

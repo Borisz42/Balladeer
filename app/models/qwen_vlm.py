@@ -105,7 +105,7 @@ class QwenVLMRunner:
                     trust_remote_code=True
                 )
                 self._loaded_model_name = target_model
-                memory_manager.set_loaded("vlm", "Qwen 2.5 VL (3B)")
+                memory_manager.set_loaded("qwen", "Qwen 2.5 VL (3B)")
                 logger.info(f"[GPU] ✓ Successfully loaded active model: {target_model.upper()} ({model_source}) on CUDA GPU")
             else:
                 self._model = AutoModelForImageTextToText.from_pretrained(
@@ -114,7 +114,7 @@ class QwenVLMRunner:
                     device_map="cpu"
                 )
                 self._loaded_model_name = target_model
-                memory_manager.set_loaded("vlm", "Qwen 2.5 VL (3B) [CPU]")
+                memory_manager.set_loaded("qwen", "Qwen 2.5 VL (3B) [CPU]")
                 logger.warning(f"[CPU] ⚠️ Loaded active model: {target_model.upper()} on CPU (CUDA unavailable)")
 
         except Exception as e:

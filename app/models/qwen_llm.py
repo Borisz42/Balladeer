@@ -71,15 +71,16 @@ class QwenLLMRunner:
         if qwen_vlm._model is not None and qwen_vlm._processor is not None:
             self._transformers_model = qwen_vlm._model
             self._transformers_tokenizer = qwen_vlm._processor
-            self._loaded_model_name = target_display_name
-            memory_manager.set_loaded("llm", target_display_name)
-            logger.info(f"[GPU] ✓ Reused active GPU engine for {target_display_name} (0.00s load latency, 0 additional VRAM).")
+            self._loaded_model_name = "Qwen 2.5 VL (3B)"
+            memory_manager.set_loaded("qwen", "Qwen 2.5 VL (3B)")
+            logger.info(f"[GPU] ✓ Reused active GPU engine for Qwen 2.5 VL (3B) (0.00s load latency, 0 additional VRAM).")
             return self
 
-        # 2. Try llama-cpp with pre-quantized GGUF (fast direct mmap PCIe DMA transfer, ~1.5s)
+        # 2. Try llama-cpp with pre-quantized GGUF if downloaded on disk
         gguf_path = self._find_gguf_file()
         if gguf_path:
             try:
+                target_display_name = "Qwen 3.5 (9B)"
                 memory_manager.set_loading(target_display_name)
                 import llama_cpp
                 n_gpu = 33 if torch.cuda.is_available() else 0
@@ -90,7 +91,7 @@ class QwenLLMRunner:
                     verbose=False
                 )
                 self._loaded_model_name = target_display_name
-                memory_manager.set_loaded("llm", target_display_name)
+                memory_manager.set_loaded("qwen", target_display_name)
                 logger.info(f"[GPU] ✓ Loaded {target_display_name} GGUF via llama-cpp ({gguf_path.name})")
                 return self
             except Exception as e:
@@ -98,12 +99,13 @@ class QwenLLMRunner:
 
         # 3. Load via unified GPU model runner
         try:
+            target_display_name = "Qwen 2.5 VL (3B)"
             m, p = qwen_vlm._get_model_and_processor()
             if m is not None and p is not None:
                 self._transformers_model = m
                 self._transformers_tokenizer = p
                 self._loaded_model_name = target_display_name
-                memory_manager.set_loaded("llm", target_display_name)
+                memory_manager.set_loaded("qwen", target_display_name)
                 logger.info(f"[GPU] ✓ Successfully initialized {target_display_name} via unified GPU engine.")
                 return self
         except Exception as e:

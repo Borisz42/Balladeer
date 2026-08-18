@@ -172,7 +172,7 @@ export default function ModelManagerModal({ isOpen, onClose }) {
               </div>
               <p className="text-xs text-slate-400">
                 {onlyLocalAi
-                  ? 'All vision indexing, scoring, and text structuring run exclusively on your local GPU (Qwen3.5-4B).'
+                  ? 'All vision indexing, aesthetic scoring, and text structuring run exclusively on your local GPU (Qwen + SigLIP 2).'
                   : 'Utilizes Google AI Studio free tier quotas (Gemini Flash Lite & Gemma) with automatic local fallback.'}
               </p>
             </div>
