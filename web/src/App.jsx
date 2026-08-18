@@ -135,20 +135,27 @@ export default function App() {
   };
 
   const loadProjectDetail = async (id) => {
+    if (!id) {
+      setProjectDetail(null);
+      setSelectedAsset(null);
+      return;
+    }
     setIsLoading(true);
     try {
       const detail = await getProject(id);
       setProjectDetail(detail);
 
       // Keep selectedAsset in sync
-      if (selectedAsset && detail.assets) {
-        const found = detail.assets.find((a) => a.id === selectedAsset.id);
-        if (found) setSelectedAsset(found);
-      } else if (detail.assets && detail.assets.length > 0 && !selectedAsset) {
-        setSelectedAsset(detail.assets[0]);
+      if (detail && detail.assets && detail.assets.length > 0) {
+        const found = selectedAsset ? detail.assets.find((a) => a.id === selectedAsset.id) : null;
+        setSelectedAsset(found || detail.assets[0]);
+      } else {
+        setSelectedAsset(null);
       }
     } catch (err) {
       console.error('Failed to load project detail:', err);
+      setProjectDetail(null);
+      setSelectedAsset(null);
     } finally {
       setIsLoading(false);
     }

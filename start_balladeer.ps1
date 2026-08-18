@@ -27,14 +27,14 @@ if (Test-Path "venv\Scripts\Activate.ps1") {
     & ".venv\Scripts\Activate.ps1"
 }
 
-# Check web/dist
-if (-not (Test-Path "web\dist\index.html")) {
-    Write-Host "[*] Building React frontend..." -ForegroundColor Cyan
-    Push-Location web
+# Check and build web/dist
+Write-Host "[*] Building latest React frontend..." -ForegroundColor Cyan
+Push-Location web
+if (-not (Test-Path "node_modules")) {
     & npm install
-    & npm run build
-    Pop-Location
 }
+& npm run build
+Pop-Location
 
 # Open browser after 2 seconds
 Start-Job -ScriptBlock {

@@ -69,43 +69,46 @@ def test_date_aware_media_indexing_sync():
         narrative_text="Day 1: Arrival\nDay 2: Exploration"
     ))
 
-    ast1_id = f"ast_1_{os.urandom(3).hex()}"
-    ast2_id = f"ast_2_{os.urandom(3).hex()}"
+    try:
+        ast1_id = f"ast_1_{os.urandom(3).hex()}"
+        ast2_id = f"ast_2_{os.urandom(3).hex()}"
 
-    # Add mock assets with different capture times
-    db.add_media_asset(MediaAssetModel(
-        id=ast1_id,
-        project_id=proj_id,
-        file_path="mock1.jpg",
-        media_type="image",
-        capture_time="2026-08-17T10:00:00",
-        tags=["nature"]
-    ))
-    db.add_media_asset(MediaAssetModel(
-        id=ast2_id,
-        project_id=proj_id,
-        file_path="mock2.jpg",
-        media_type="image",
-        capture_time="2026-08-18T15:30:00",
-        tags=["city"]
-    ))
+        # Add mock assets with different capture times
+        db.add_media_asset(MediaAssetModel(
+            id=ast1_id,
+            project_id=proj_id,
+            file_path="mock1.jpg",
+            media_type="image",
+            capture_time="2026-08-17T10:00:00",
+            tags=["nature"]
+        ))
+        db.add_media_asset(MediaAssetModel(
+            id=ast2_id,
+            project_id=proj_id,
+            file_path="mock2.jpg",
+            media_type="image",
+            capture_time="2026-08-18T15:30:00",
+            tags=["city"]
+        ))
 
-    diary_days = [
-        {"day_number": 1, "date": "2026-08-17", "title": "Day 1 - Kyoto Arrival", "is_active": True},
-        {"day_number": 2, "date": "2026-08-18", "title": "Day 2 - Bamboo Forest", "is_active": True}
-    ]
+        diary_days = [
+            {"day_number": 1, "date": "2026-08-17", "title": "Day 1 - Kyoto Arrival", "is_active": True},
+            {"day_number": 2, "date": "2026-08-18", "title": "Day 2 - Bamboo Forest", "is_active": True}
+        ]
 
-    updated_count = indexer.sync_assets_with_diary_dates(proj_id, diary_days)
-    assert updated_count == 2
+        updated_count = indexer.sync_assets_with_diary_dates(proj_id, diary_days)
+        assert updated_count == 2
 
-    # Verify updated tags
-    a1 = db.get_asset(ast1_id)
-    assert "day:Day 1" in a1.tags
-    assert "date:2026-08-17" in a1.tags
+        # Verify updated tags
+        a1 = db.get_asset(ast1_id)
+        assert "day:Day 1" in a1.tags
+        assert "date:2026-08-17" in a1.tags
 
-    a2 = db.get_asset(ast2_id)
-    assert "day:Day 2" in a2.tags
-    assert "date:2026-08-18" in a2.tags
+        a2 = db.get_asset(ast2_id)
+        assert "day:Day 2" in a2.tags
+        assert "date:2026-08-18" in a2.tags
+    finally:
+        db.delete_project(proj_id)
 
 def test_api_update_project_diary_and_rephrase():
     # 1. Create project
@@ -116,46 +119,50 @@ def test_api_update_project_diary_and_rephrase():
     assert create_res.status_code == 200
     p_id = create_res.json()["id"]
 
-    # 2. Update diary endpoint
-    update_res = client.put(f"/api/projects/{p_id}/diary", json={
-        "title": "Updated Journey",
-        "narrative_text": "Day 1 (2026-08-17): Arrived in Kyoto\nDay 2 (2026-08-18): Tokyo neon lights",
-        "config_override": {
-            "start_date": "2026-08-17",
-            "finish_date": "2026-08-18",
-            "diary_days": [
-                {"day_number": 1, "date": "2026-08-17", "events": "Arrived in Kyoto", "is_active": True, "is_discarded": False},
-                {"day_number": 2, "date": "2026-08-18", "events": "Tokyo neon lights", "is_active": True, "is_discarded": False}
+    try:
+        # 2. Update diary endpoint
+        update_res = client.put(f"/api/projects/{p_id}/diary", json={
+            "title": "Updated Journey",
+            "narrative_text": "Day 1 (2026-08-17): Arrived in Kyoto\nDay 2 (2026-08-18): Tokyo neon lights",
+            "config_override": {
+                "start_date": "2026-08-17",
+                "finish_date": "2026-08-18",
+                "diary_days": [
+                    {"day_number": 1, "date": "2026-08-17", "events": "Arrived in Kyoto", "is_active": True, "is_discarded": False},
+                    {"day_number": 2, "date": "2026-08-18", "events": "Tokyo neon lights", "is_active": True, "is_discarded": False}
+                ]
+            }
+        })
+        assert update_res.status_code == 200
+        detail = update_res.json()
+        assert detail["project"]["title"] == "Updated Journey"
+        assert "diary_days" in detail["project"]["config_override"]
+
+        # 3. AI Rephrase endpoint (single day)
+        rephrase_res = client.post("/api/projects/rephrase", json={
+            "text": "arived at kyoto tempel wiht beatiful lanterns",
+            "day_number": 1,
+            "date": "2026-08-17",
+            "mode": "single_day"
+        })
+        assert rephrase_res.status_code == 200
+        assert "Arrived" in rephrase_res.json()["rephrased_text"]
+        assert "temple" in rephrase_res.json()["rephrased_text"]
+        assert "beautiful" in rephrase_res.json()["rephrased_text"]
+
+        # 4. AI Rephrase endpoint (structured days)
+        rephrase_all_res = client.post(f"/api/projects/{p_id}/rephrase", json={
+            "days": [
+                {"day_number": 1, "date": "2026-08-17", "events": "arived at kyoto tempel", "is_active": True},
+                {"day_number": 2, "date": "2026-08-18", "events": "shinkasen to tokyo midnigth", "is_active": True}
             ]
-        }
-    })
-    assert update_res.status_code == 200
-    detail = update_res.json()
-    assert detail["project"]["title"] == "Updated Journey"
-    assert "diary_days" in detail["project"]["config_override"]
+        })
+        assert rephrase_all_res.status_code == 200
+        res_data = rephrase_all_res.json()
+        assert "rephrased_days" in res_data
+        assert len(res_data["rephrased_days"]) == 2
+        assert "Shinkansen" in res_data["rephrased_days"][1]["events"]
+        assert "Tokyo" in res_data["rephrased_days"][1]["events"]
+    finally:
+        client.delete(f"/api/projects/{p_id}")
 
-    # 3. AI Rephrase endpoint (single day)
-    rephrase_res = client.post("/api/projects/rephrase", json={
-        "text": "arived at kyoto tempel wiht beatiful lanterns",
-        "day_number": 1,
-        "date": "2026-08-17",
-        "mode": "single_day"
-    })
-    assert rephrase_res.status_code == 200
-    assert "Arrived" in rephrase_res.json()["rephrased_text"]
-    assert "temple" in rephrase_res.json()["rephrased_text"]
-    assert "beautiful" in rephrase_res.json()["rephrased_text"]
-
-    # 4. AI Rephrase endpoint (structured days)
-    rephrase_all_res = client.post(f"/api/projects/{p_id}/rephrase", json={
-        "days": [
-            {"day_number": 1, "date": "2026-08-17", "events": "arived at kyoto tempel", "is_active": True},
-            {"day_number": 2, "date": "2026-08-18", "events": "shinkasen to tokyo midnigth", "is_active": True}
-        ]
-    })
-    assert rephrase_all_res.status_code == 200
-    res_data = rephrase_all_res.json()
-    assert "rephrased_days" in res_data
-    assert len(res_data["rephrased_days"]) == 2
-    assert "Shinkansen" in res_data["rephrased_days"][1]["events"]
-    assert "Tokyo" in res_data["rephrased_days"][1]["events"]

@@ -31,17 +31,17 @@ if exist "venv\Scripts\activate.bat" (
     )
 )
 
-REM 3. Build frontend if web/dist does not exist
-if not exist "web\dist\index.html" (
-    echo [*] Web bundle not found. Building React frontend...
-    where npm >nul 2>nul
-    if %ERRORLEVEL% equ 0 (
-        pushd web
-        call npm install
-        call npm run build
-        popd
-    ) else (
-        echo [WARNING] npm was not found. Using fallback or existing server mode.
+REM 3. Build frontend (fast incremental build <1s)
+where npm >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    echo [*] Checking and building latest React frontend...
+    pushd web
+    if not exist "node_modules" call npm install
+    call npm run build
+    popd
+) else (
+    if not exist "web\dist\index.html" (
+        echo [WARNING] npm was not found and web\dist does not exist.
     )
 )
 

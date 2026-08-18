@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -52,19 +52,25 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
   const [statusMessage, setStatusMessage] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
 
-  // Video Analytics state
+  // Video Analytics state & playhead tracking
   const [segments, setSegments] = useState([]);
   const [frameScoresData, setFrameScoresData] = useState(null);
   const [isLoadingScores, setIsLoadingScores] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+
+  const videoRef = useRef(null);
+  const chartRef = useRef(null);
 
   useEffect(() => {
     if (asset) {
       setCaption(asset.caption || '');
       setTagsText(asset.tags ? asset.tags.join(', ') : '');
-      setQualityScore(asset.quality_score || 7.0);
+      setQualityScore(typeof asset.quality_score === 'number' ? asset.quality_score : 7.0);
       setIsActive(asset.is_active !== undefined ? asset.is_active : true);
       setStatusMessage(null);
       setErrorMessage(null);
+      setCurrentTime(0);
 
       if (asset.media_type === 'video' && project?.id) {
         setIsLoadingScores(true);
@@ -101,10 +107,30 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
   if (!isOpen || !asset) return null;
 
   const isVideo = asset.media_type === 'video';
-  const fileUrl = `http://localhost:8000/api/projects/${project.id}/assets/${asset.id}/file`;
-  const thumbUrl = `http://localhost:8000/api/projects/${project.id}/assets/${asset.id}/thumbnail`;
+  const fileUrl = `http://localhost:8000/api/projects/${project?.id}/assets/${asset.id}/file`;
+  const thumbUrl = `http://localhost:8000/api/projects/${project?.id}/assets/${asset.id}/thumbnail`;
+
+  const assetTitle = (asset.file_path && typeof asset.file_path === 'string')
+    ? (asset.file_path.split(/[\\/]/).pop() || asset.file_path)
+    : (asset.caption || asset.id || 'Media Asset');
+
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
+    }
+  };
+
+  const jumpToSecond = (targetSec) => {
+    if (videoRef.current) {
+      const maxT = asset.duration_sec || (chartPoints.length > 0 ? (chartPoints[chartPoints.length - 1]?.t || 1) : 99999) || 1;
+      const clamped = Math.max(0, Math.min(targetSec, maxT));
+      videoRef.current.currentTime = clamped;
+      setCurrentTime(clamped);
+    }
+  };
 
   const handleSave = async () => {
+    if (!project?.id) return;
     setIsSaving(true);
     setErrorMessage(null);
     try {
@@ -116,7 +142,7 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
       const updated = await updateAsset(project.id, asset.id, {
         caption: caption.trim(),
         tags: parsedTags,
-        quality_score: parseFloat(qualityScore),
+        quality_score: parseFloat(qualityScore) || 7.0,
         is_active: isActive
       });
 
@@ -131,13 +157,14 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
   };
 
   const handleReindex = async () => {
+    if (!project?.id) return;
     setIsReindexing(true);
     setErrorMessage(null);
     try {
       const updated = await reindexAsset(project.id, asset.id);
       setCaption(updated.caption || '');
       setTagsText(updated.tags ? updated.tags.join(', ') : '');
-      setQualityScore(updated.quality_score || 7.0);
+      setQualityScore(typeof updated.quality_score === 'number' ? updated.quality_score : 7.0);
       setStatusMessage(`Re-indexed with ${updated.indexed_by_model || 'AI'}!`);
       if (onAssetUpdated) onAssetUpdated(updated);
 
@@ -169,14 +196,16 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
   };
 
   // Chart configuration
-  const chartPoints = frameScoresData?.frame_scores || [];
-  const chartLabels = chartPoints.map((p) => `${p.t.toFixed(0)}s`);
-  const chartData = {
+  const chartPoints = Array.isArray(frameScoresData?.frame_scores) ? frameScoresData.frame_scores : [];
+  const chartLabels = chartPoints.map((p) => (p && typeof p.t === 'number' ? `${p.t.toFixed(0)}s` : '0s'));
+  const maxDuration = asset.duration_sec || (chartPoints.length > 0 ? (chartPoints[chartPoints.length - 1]?.t || 1) : 1);
+
+  const chartData = useMemo(() => ({
     labels: chartLabels,
     datasets: [
       {
-        label: 'Composite Score (S = 0.7 S_rel + 0.3 S_aes)',
-        data: chartPoints.map((p) => p.s_comp),
+        label: 'Composite Score (S_comp)',
+        data: chartPoints.map((p) => (p && typeof p.s_comp === 'number' ? p.s_comp : 0)),
         borderColor: '#2dd4bf',
         backgroundColor: 'rgba(45, 212, 191, 0.15)',
         borderWidth: 2,
@@ -186,8 +215,8 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
         pointHoverRadius: 5
       },
       {
-        label: 'Travel Log Relevance (S_rel)',
-        data: chartPoints.map((p) => p.s_rel),
+        label: 'Relevance (S_rel)',
+        data: chartPoints.map((p) => (p && typeof p.s_rel === 'number' ? p.s_rel : 0)),
         borderColor: '#38bdf8',
         backgroundColor: 'transparent',
         borderWidth: 1.5,
@@ -196,8 +225,8 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
         pointRadius: 0
       },
       {
-        label: 'Visual Sharpness & Aesthetic (S_aes)',
-        data: chartPoints.map((p) => p.s_aes),
+        label: 'Aesthetic & Sharpness (S_aes)',
+        data: chartPoints.map((p) => (p && typeof p.s_aes === 'number' ? p.s_aes : 0)),
         borderColor: '#fbbf24',
         backgroundColor: 'transparent',
         borderWidth: 1.5,
@@ -206,18 +235,20 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
         pointRadius: 0
       }
     ]
-  };
+  }), [chartPoints, chartLabels]);
 
-  const chartOptions = {
+  const chartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    animation: false,
     plugins: {
       legend: {
         position: 'top',
         labels: {
           color: '#94a3b8',
           font: { size: 10, family: 'monospace' },
-          boxWidth: 12
+          boxWidth: 12,
+          padding: 8
         }
       },
       tooltip: {
@@ -234,16 +265,57 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
     },
     scales: {
       x: {
-        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+        grid: { color: 'rgba(51, 65, 85, 0.25)' },
         ticks: { color: '#64748b', font: { size: 9, family: 'monospace' }, maxTicksLimit: 12 }
       },
       y: {
         min: 0,
         max: 1.0,
-        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+        grid: { color: 'rgba(51, 65, 85, 0.25)' },
         ticks: { color: '#64748b', font: { size: 9, family: 'monospace' } }
       }
     }
+  }), []);
+
+  const seekFromChartEvent = (e) => {
+    if (!videoRef.current || chartPoints.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const chart = chartRef.current;
+    const chartArea = chart?.chartArea;
+    const left = chartArea?.left ?? 36;
+    const right = chartArea?.right ?? (rect.width - 12);
+
+    if (clickX >= left && clickX <= right) {
+      const progress = (clickX - left) / (right - left);
+      const targetTime = Math.max(0, Math.min(progress * maxDuration, maxDuration));
+      videoRef.current.currentTime = targetTime;
+      setCurrentTime(targetTime);
+    }
+  };
+
+  const getPlayheadStyle = () => {
+    const chart = chartRef.current;
+    const clampedTime = Math.min(Math.max(currentTime, 0), maxDuration);
+    const progress = maxDuration > 0 ? clampedTime / maxDuration : 0;
+
+    if (chart && chart.chartArea) {
+      const { left, right, top, bottom } = chart.chartArea;
+      const pixelX = left + progress * (right - left);
+      return {
+        left: `${pixelX}px`,
+        top: `${top}px`,
+        height: `${bottom - top}px`,
+        transform: 'translateX(-50%)'
+      };
+    }
+
+    return {
+      left: `calc(36px + ${progress} * (100% - 48px))`,
+      top: '28px',
+      height: 'calc(100% - 48px)',
+      transform: 'translateX(-50%)'
+    };
   };
 
   return createPortal(
@@ -270,7 +342,7 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
           <div>
             <h2 className="text-base font-bold text-white">Media Asset Inspector & AI Editor</h2>
             <p className="text-xs text-slate-400 truncate max-w-md font-mono">
-              {asset.file_path.split(/[\\/]/).pop()}
+              {assetTitle}
             </p>
           </div>
         </div>
@@ -291,20 +363,25 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left: Media Preview & Technical Stats */}
-          <div className="lg:col-span-6 flex flex-col space-y-3">
+          {/* Left: Media Preview, Interactive Timeline Graph & Technical Stats */}
+          <div className="lg:col-span-6 flex flex-col space-y-4">
+            {/* Video or Image Preview */}
             <div className="w-full h-64 sm:h-72 bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center relative">
               {isVideo ? (
                 <video
+                  ref={videoRef}
                   controls
                   className="w-full h-full object-contain"
                   src={fileUrl}
                   poster={thumbUrl}
+                  onTimeUpdate={handleTimeUpdate}
+                  onSeeking={handleTimeUpdate}
+                  onSeeked={handleTimeUpdate}
                 />
               ) : (
                 <img
                   src={fileUrl}
-                  alt={caption}
+                  alt={caption || assetTitle}
                   className="w-full h-full object-contain"
                   onError={(e) => {
                     e.target.src = thumbUrl;
@@ -317,7 +394,75 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
               </div>
             </div>
 
-            {/* Technical Metadata & Dual Relevance Bar */}
+            {/* Video Score Timeline Graph DIRECTLY UNDER THE VIDEO */}
+            {isVideo && (
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Activity className="w-4 h-4 text-cyan-400" />
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                      Timeline Scores (Click to Seek)
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-mono text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 font-bold">
+                    ▶ {currentTime.toFixed(1)}s / {maxDuration.toFixed(1)}s
+                  </span>
+                </div>
+
+                <div
+                  className="h-44 relative select-none cursor-crosshair group overflow-hidden"
+                  onClick={seekFromChartEvent}
+                  onMouseDown={(e) => {
+                    setIsScrubbing(true);
+                    seekFromChartEvent(e);
+                  }}
+                  onMouseMove={(e) => {
+                    if (isScrubbing) seekFromChartEvent(e);
+                  }}
+                  onMouseUp={() => setIsScrubbing(false)}
+                  onMouseLeave={() => setIsScrubbing(false)}
+                  title="Click or drag anywhere on graph to jump to that second in video"
+                >
+                  {chartPoints.length > 0 ? (
+                    <>
+                      <Line
+                        ref={chartRef}
+                        data={chartData}
+                        options={chartOptions}
+                      />
+
+                      {/* Visible Overlay Playhead Marker */}
+                      <div
+                        className="absolute pointer-events-none z-20"
+                        style={getPlayheadStyle()}
+                      >
+                        {/* Vertical Scrubber Bar with Glow */}
+                        <div className="w-[2px] h-full bg-rose-500 shadow-[0_0_12px_#f43f5e] relative">
+                          {/* Top Circular Scrubber Handle */}
+                          <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-white shadow-md flex items-center justify-center">
+                            <div className="w-1 h-1 rounded-full bg-white" />
+                          </div>
+
+                          {/* Floating Timestamp Pin */}
+                          <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-slate-950/95 border border-rose-500 text-[9px] font-mono font-bold text-rose-300 shadow-xl whitespace-nowrap">
+                            {currentTime.toFixed(1)}s
+                          </div>
+
+                          {/* Bottom Pin */}
+                          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-rose-500 border border-white" />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-slate-500 font-mono">
+                      {isLoadingScores ? 'Loading frame-by-frame scores...' : 'No frame score curve available. Re-index to compute.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Technical Metadata */}
             <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-400 space-y-1.5">
               <div className="flex justify-between">
                 <span>Capture Timestamp:</span>
@@ -326,7 +471,7 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
               {isVideo && (
                 <div className="flex justify-between">
                   <span>Video Duration:</span>
-                  <span className="text-cyan-400 font-bold">{asset.duration_sec?.toFixed(1)} seconds</span>
+                  <span className="text-cyan-400 font-bold">{(asset.duration_sec || 0).toFixed(1)} seconds</span>
                 </div>
               )}
               <div className="flex justify-between">
@@ -335,7 +480,6 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
                   {asset.is_indexed ? 'Indexed with SigLIP 2 + VLM' : 'Pending AI Analysis'}
                 </span>
               </div>
-
             </div>
           </div>
 
@@ -343,18 +487,18 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
           <div className="lg:col-span-6 space-y-4">
             {/* Dual Relevance Scores (Prominent) */}
             <div className="grid grid-cols-2 gap-3 mb-2">
-              <div className={`p-3 rounded-xl border ${asset.is_indexed ? (asset.relevance_score_daily > 0.7 ? 'bg-teal-500/10 border-teal-500/30' : asset.relevance_score_daily > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-800/50 border-slate-700/50'}`}>
+              <div className={`p-3 rounded-xl border ${asset.is_indexed ? ((asset.relevance_score_daily || 0) > 0.7 ? 'bg-teal-500/10 border-teal-500/30' : (asset.relevance_score_daily || 0) > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-800/50 border-slate-700/50'}`}>
                 <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider mb-1">Matched Day Relevance</span>
                 <div className="flex items-end gap-2">
-                  <strong className={`text-2xl font-bold ${asset.is_indexed ? (asset.relevance_score_daily > 0.7 ? 'text-teal-400' : asset.relevance_score_daily > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
+                  <strong className={`text-2xl font-bold ${asset.is_indexed ? ((asset.relevance_score_daily || 0) > 0.7 ? 'text-teal-400' : (asset.relevance_score_daily || 0) > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
                     {asset.is_indexed ? `${Math.round((asset.relevance_score_daily || 0) * 100)}%` : 'N/A'}
                   </strong>
                 </div>
               </div>
-              <div className={`p-3 rounded-xl border ${asset.is_indexed ? (asset.relevance_score_overall > 0.7 ? 'bg-purple-500/10 border-purple-500/30' : asset.relevance_score_overall > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-800/50 border-slate-700/50'}`}>
+              <div className={`p-3 rounded-xl border ${asset.is_indexed ? ((asset.relevance_score_overall || 0) > 0.7 ? 'bg-purple-500/10 border-purple-500/30' : (asset.relevance_score_overall || 0) > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-800/50 border-slate-700/50'}`}>
                 <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider mb-1">Full Trip Narrative</span>
                 <div className="flex items-end gap-2">
-                  <strong className={`text-2xl font-bold ${asset.is_indexed ? (asset.relevance_score_overall > 0.7 ? 'text-purple-400' : asset.relevance_score_overall > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
+                  <strong className={`text-2xl font-bold ${asset.is_indexed ? ((asset.relevance_score_overall || 0) > 0.7 ? 'text-purple-400' : (asset.relevance_score_overall || 0) > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
                     {asset.is_indexed ? `${Math.round((asset.relevance_score_overall || 0) * 100)}%` : 'N/A'}
                   </strong>
                 </div>
@@ -408,7 +552,7 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
                   Cinematic Quality Score
                 </span>
                 <span className="font-mono text-teal-400 font-bold text-sm">
-                  {qualityScore.toFixed(1)} / 10.0
+                  {(typeof qualityScore === 'number' && !isNaN(qualityScore) ? qualityScore : 7.0).toFixed(1)} / 10.0
                 </span>
               </div>
               <input
@@ -416,8 +560,8 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
                 min={1.0}
                 max={10.0}
                 step={0.1}
-                value={qualityScore}
-                onChange={(e) => setQualityScore(parseFloat(e.target.value))}
+                value={typeof qualityScore === 'number' && !isNaN(qualityScore) ? qualityScore : 7.0}
+                onChange={(e) => setQualityScore(parseFloat(e.target.value) || 7.0)}
                 className="w-full accent-teal-500"
               />
               <p className="text-[10px] text-slate-500">
@@ -471,76 +615,53 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
           </div>
         </div>
 
-        {/* Video Internal Timeline Analytics: Time vs Score Graph & Subsegments */}
-        {isVideo && (
-          <div className="mt-6 pt-6 border-t border-slate-800 space-y-5">
+        {/* Visual Subsegments & Best Shot Windows (Full Width at Bottom) */}
+        {isVideo && segments.length > 0 && (
+          <div className="mt-6 pt-6 border-t border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-cyan-400" />
-                <h3 className="text-sm font-bold text-white">Video Internal Timeline: Time vs Scores Graph</h3>
-              </div>
-              <span className="text-[11px] font-mono text-slate-400">
-                1 fps SigLIP 2 Frame-Level Scoring
-              </span>
-            </div>
-
-            {/* Chart.js Graph Component */}
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 h-56 relative">
-              {chartPoints.length > 0 ? (
-                <Line data={chartData} options={chartOptions} />
-              ) : (
-                <div className="h-full flex items-center justify-center text-xs text-slate-500 font-mono">
-                  {isLoadingScores ? 'Loading frame-by-frame scores...' : 'No frame score data available. Re-index this asset to compute 1 fps timeline curve.'}
-                </div>
-              )}
-            </div>
-
-            {/* Visual Subsegments & Best n-sec Shot List */}
-            <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-purple-400" />
                 <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
                   Visual Similarity Subsegments & Best Shot Windows
                 </h4>
               </div>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Click any segment to seek video
+              </span>
+            </div>
 
-              {segments.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {segments.map((seg, idx) => (
-                    <div
-                      key={seg.id || idx}
-                      className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-col justify-between text-xs font-mono space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-white">
-                          Segment #{idx + 1} ({seg.start_time.toFixed(1)}s – {seg.end_time.toFixed(1)}s)
-                        </span>
-                        <span className="px-2 py-0.5 rounded bg-teal-500/20 border border-teal-500/40 text-teal-300 text-[10px] font-bold">
-                          Score: {(seg.motion_score || 0).toFixed(2)}
-                        </span>
-                      </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {segments.map((seg, idx) => (
+                <div
+                  key={seg.id || idx}
+                  onClick={() => jumpToSecond(seg.best_shot_start || seg.start_time || 0)}
+                  className="bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-teal-500/50 cursor-pointer transition flex flex-col justify-between text-xs font-mono space-y-2 group"
+                  title="Click to seek video to this segment"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white group-hover:text-teal-300 transition">
+                      Segment #{idx + 1} ({(seg.start_time || 0).toFixed(1)}s – {(seg.end_time || 0).toFixed(1)}s)
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-teal-500/20 border border-teal-500/40 text-teal-300 text-[10px] font-bold">
+                      Score: {(seg.motion_score || 0).toFixed(2)}
+                    </span>
+                  </div>
 
-                      <p className="text-[11px] text-slate-400 line-clamp-1">
-                        {seg.description || 'Action Scene'}
-                      </p>
+                  <p className="text-[11px] text-slate-400 line-clamp-1">
+                    {seg.description || 'Action Scene'}
+                  </p>
 
-                      <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-800/80">
-                        <span className="text-slate-400 flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-amber-400" />
-                          Best Shot Window:
-                        </span>
-                        <span className="font-bold text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30">
-                          {seg.best_shot_start ? `${seg.best_shot_start.toFixed(1)}s – ${seg.best_shot_end.toFixed(1)}s` : `${seg.start_time.toFixed(1)}s – ${seg.end_time.toFixed(1)}s`}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                  <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-800/80">
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      Best Shot Window:
+                    </span>
+                    <span className="font-bold text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30">
+                      {seg.best_shot_start ? `${seg.best_shot_start.toFixed(1)}s – ${seg.best_shot_end.toFixed(1)}s` : `${(seg.start_time || 0).toFixed(1)}s – ${(seg.end_time || 0).toFixed(1)}s`}
+                    </span>
+                  </div>
                 </div>
-              ) : (
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-500 font-mono">
-                  No subsegments generated yet. Click "Re-Index AI" to segment this video based on visual similarity.
-                </div>
-              )}
+              ))}
             </div>
           </div>
         )}

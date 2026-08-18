@@ -3,7 +3,7 @@ import { Upload, FolderPlus, Image as ImageIcon, Video, Star, Tag, Clock, Cpu, S
 
 export default function AssetGallery({
   project,
-  assets,
+  assets = [],
   selectedAsset,
   onSelectAsset,
   onUploadFiles,
@@ -17,7 +17,8 @@ export default function AssetGallery({
   const [isIndexingDir, setIsIndexingDir] = useState(false);
   const [isBatchIndexing, setIsBatchIndexing] = useState(false);
 
-  const unindexedCount = assets.filter((a) => !a.is_indexed).length;
+  const safeAssets = Array.isArray(assets) ? assets : [];
+  const unindexedCount = safeAssets.filter((a) => a && !a.is_indexed).length;
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -62,6 +63,14 @@ export default function AssetGallery({
     }
   };
 
+  const getFileName = (asset) => {
+    if (asset.caption && asset.caption.trim()) return asset.caption;
+    if (asset.file_path && typeof asset.file_path === 'string') {
+      return asset.file_path.split(/[\\/]/).pop() || asset.file_path;
+    }
+    return asset.id || 'Media File';
+  };
+
   return (
     <div className="glass-panel rounded-2xl p-4 border border-slate-800 h-full flex flex-col overflow-hidden">
       {/* Header & Controls */}
@@ -72,7 +81,7 @@ export default function AssetGallery({
               <ImageIcon className="w-3.5 h-3.5" />
             </div>
             <h2 className="text-xs font-bold text-white uppercase tracking-wider truncate">
-              Source Media ({assets.length})
+              Source Media ({safeAssets.length})
             </h2>
             {unindexedCount > 0 && (
               <span className="text-[9px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded-full font-bold">
@@ -82,7 +91,7 @@ export default function AssetGallery({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {assets.length > 0 && (
+            {safeAssets.length > 0 && (
               <button
                 onClick={handleRunBatchIndexing}
                 disabled={isLoading || isBatchIndexing}
@@ -136,7 +145,7 @@ export default function AssetGallery({
 
       {/* Asset Grid */}
       <div className="flex-1 overflow-y-auto pr-1">
-        {assets.length === 0 ? (
+        {safeAssets.length === 0 ? (
           <div
             onClick={() => fileInputRef.current?.click()}
             className="h-full border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-xl p-4 text-center cursor-pointer transition bg-slate-950/40 flex flex-col items-center justify-center"
@@ -149,17 +158,20 @@ export default function AssetGallery({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {assets.map((asset) => {
+            {safeAssets.map((asset) => {
+              if (!asset) return null;
               const isVideo = asset.media_type === 'video';
               const isSelected = selectedAsset?.id === asset.id;
+              const qScore = typeof asset.quality_score === 'number' ? asset.quality_score : 7.0;
               const qualityColor =
-                asset.quality_score >= 8.0
+                qScore >= 8.0
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  : asset.quality_score >= 6.0
+                  : qScore >= 6.0
                   ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
                   : 'bg-amber-500/20 text-amber-300 border-amber-500/40';
 
               const thumbUrl = `http://localhost:8000/api/projects/${project?.id}/assets/${asset.id}/thumbnail`;
+              const titleText = getFileName(asset);
 
               return (
                 <div
@@ -175,7 +187,7 @@ export default function AssetGallery({
                   <div className="h-20 w-full bg-slate-950 relative flex items-center justify-center overflow-hidden">
                     <img
                       src={thumbUrl}
-                      alt={asset.caption || asset.file_path}
+                      alt={titleText}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       loading="lazy"
                       onError={(e) => {
@@ -198,7 +210,7 @@ export default function AssetGallery({
                           className={`px-1 py-0.2 rounded text-[8px] font-mono font-bold border flex items-center gap-0.5 shadow ${qualityColor}`}
                         >
                           <Star className="w-2 h-2 fill-current" />
-                          {asset.quality_score?.toFixed(1)}
+                          {qScore.toFixed(1)}
                         </div>
                       </div>
                     )}
@@ -212,14 +224,14 @@ export default function AssetGallery({
 
                     {/* Media Type & Duration Tag */}
                     <div className="absolute bottom-1 left-1 px-1 py-0.2 rounded bg-black/75 backdrop-blur-sm text-[8px] font-mono text-slate-300 uppercase">
-                      {isVideo ? `${asset.duration_sec?.toFixed(0)}s` : 'photo'}
+                      {isVideo ? `${(asset.duration_sec || 0).toFixed(0)}s` : 'photo'}
                     </div>
                   </div>
 
                   {/* Info Card */}
                   <div className="p-1.5 flex-1 flex flex-col justify-between bg-slate-900/90 text-left">
-                    <p className="text-[10px] font-semibold text-slate-200 line-clamp-1 leading-tight" title={asset.caption || asset.file_path}>
-                      {asset.caption || asset.file_path.split(/[\\/]/).pop()}
+                    <p className="text-[10px] font-semibold text-slate-200 line-clamp-1 leading-tight" title={titleText}>
+                      {titleText}
                     </p>
                     <div className="mt-1 flex items-center justify-between text-[8px] text-slate-500 font-mono">
                       <span>{formatTime(asset.capture_time)}</span>
