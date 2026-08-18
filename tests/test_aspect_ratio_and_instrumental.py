@@ -41,3 +41,31 @@ def test_vertical_aspect_ratio_processing(tmp_path):
     assert processed.exists()
     with Image.open(processed) as res:
         assert res.size == (1080, 1920)
+
+def test_thumbnail_exif_orientation_handling(tmp_path):
+    from app.pipeline.indexer import MediaIndexer
+    indexer = MediaIndexer()
+    
+    # Create an image that is physically 400x200 (landscape), but has EXIF Orientation=6 (Rotate 90 CW => 200x400 portrait)
+    test_img = tmp_path / "exif_rotated.jpg"
+    img = Image.new("RGB", (400, 200), color=(200, 50, 50))
+    exif = img.getexif()
+    exif[0x0112] = 6 # EXIF Orientation tag
+    img.save(test_img, exif=exif)
+
+    thumb_res = indexer.generate_thumbnail(test_img, "test_exif_asset", "image", max_dim=200)
+    assert thumb_res is not None
+    thumb_path = Path(thumb_res)
+    assert thumb_path.exists()
+
+    # The generated thumbnail must be transposed to portrait (width < height, exactly 100x200)
+    with Image.open(thumb_path) as thumb_img:
+        tw, th = thumb_img.size
+        assert th > tw
+        assert (tw, th) == (100, 200)
+
+    # Test metadata extraction respects EXIF orientation
+    meta = indexer.extract_image_metadata(test_img)
+    assert meta["width"] == 200
+    assert meta["height"] == 400
+

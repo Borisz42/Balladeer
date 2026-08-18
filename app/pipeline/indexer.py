@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Callable
 import numpy as np
-from PIL import Image, ExifTags
+from PIL import Image, ImageOps, ExifTags
 
 try:
     import cv2
@@ -59,6 +59,7 @@ class MediaIndexer:
 
             if is_image:
                 with Image.open(p) as img:
+                    img = ImageOps.exif_transpose(img) or img
                     img = img.convert("RGB")
                     img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
                     img.save(thumb_path, "JPEG", quality=80)
@@ -132,7 +133,8 @@ class MediaIndexer:
         }
         try:
             with Image.open(image_path) as img:
-                meta["width"], meta["height"] = img.size
+                img_transposed = ImageOps.exif_transpose(img) or img
+                meta["width"], meta["height"] = img_transposed.size
                 exif_data = img.getexif()
                 if exif_data:
                     for tag_id, value in exif_data.items():

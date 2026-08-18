@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import httpx
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.core.config import get_settings
 
@@ -46,6 +46,7 @@ class GoogleAIStudioClient:
     def _encode_image_to_part(self, image_path: Path, max_dim: int = 1024) -> Dict[str, Any]:
         """Resizes large images to conserve tokens & bandwidth, returning an inline base64 part."""
         with Image.open(image_path) as img:
+            img = ImageOps.exif_transpose(img) or img
             img = img.convert("RGB")
             if max(img.size) > max_dim:
                 img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)

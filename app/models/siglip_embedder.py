@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Union, Optional, Tuple
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 # Suppress repetitive HuggingFace Hub network checks & symlink warnings
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -115,6 +115,7 @@ class SigLIPEmbedder:
                         p = Path(item)
                         if p.exists():
                             with Image.open(p) as img:
+                                img = ImageOps.exif_transpose(img) or img
                                 prepared_pil.append(img.convert("RGB").resize((224, 224), Image.Resampling.BICUBIC))
                         else:
                             prepared_pil.append(Image.new("RGB", (224, 224), (128, 128, 128)))

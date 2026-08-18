@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 import torch
-from PIL import Image, ImageStat
+from PIL import Image, ImageOps, ImageStat
 from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
 
@@ -178,9 +178,10 @@ class QwenVLMRunner:
 
         try:
             if preloaded_image is not None:
-                img_copy = preloaded_image.copy()
+                img_copy = ImageOps.exif_transpose(preloaded_image) or preloaded_image.copy()
             else:
-                img_copy = Image.open(target_image_path)
+                raw_img = Image.open(target_image_path)
+                img_copy = ImageOps.exif_transpose(raw_img) or raw_img
             
             with img_copy as img:
                 w, h = img.size

@@ -353,30 +353,38 @@ export default function AssetDetailPane({ project, asset, onAssetUpdated }) {
       {/* Scrollable Content Body */}
       <div className="flex-1 overflow-y-auto pr-1 space-y-3">
         {/* Media Player / Preview */}
-        <div className="w-full h-44 bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center relative shrink-0">
-          {isVideo ? (
-            <video
-              ref={videoRef}
-              controls
-              className="w-full h-full object-contain"
-              src={fileUrl}
-              poster={thumbUrl}
-              onTimeUpdate={handleTimeUpdate}
-              onSeeking={handleTimeUpdate}
-              onSeeked={handleTimeUpdate}
-            />
-          ) : (
-            <img
-              src={fileUrl}
-              alt={caption || assetTitle}
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                e.target.src = thumbUrl;
-              }}
-            />
-          )}
-          <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[9px] font-mono text-slate-300 uppercase">
-            {asset.media_type} {asset.width && asset.height ? `• ${asset.width}x${asset.height}` : ''}
+        <div className="w-full flex justify-center items-center rounded-xl overflow-hidden bg-slate-950/60 border border-slate-800/80 relative min-h-[220px] max-h-[380px] sm:max-h-[440px] p-1 shrink-0 group">
+          {/* Ambient Glow */}
+          <div
+            className="absolute inset-0 opacity-20 blur-2xl scale-125 pointer-events-none bg-cover bg-center transition-all duration-700"
+            style={{ backgroundImage: `url(${thumbUrl})` }}
+          />
+
+          <div className="relative z-10 flex items-center justify-center max-h-[360px] sm:max-h-[420px] max-w-full">
+            {isVideo ? (
+              <video
+                ref={videoRef}
+                controls
+                className="max-h-[360px] sm:max-h-[420px] max-w-full w-auto h-auto object-contain rounded-lg shadow-xl"
+                src={fileUrl}
+                poster={thumbUrl}
+                onTimeUpdate={handleTimeUpdate}
+                onSeeking={handleTimeUpdate}
+                onSeeked={handleTimeUpdate}
+              />
+            ) : (
+              <img
+                src={fileUrl}
+                alt={caption || assetTitle}
+                className="max-h-[360px] sm:max-h-[420px] max-w-full w-auto h-auto object-contain rounded-lg shadow-xl transition-all"
+                onError={(e) => {
+                  e.target.src = thumbUrl;
+                }}
+              />
+            )}
+            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm text-[9px] font-mono text-slate-300 uppercase shadow pointer-events-none">
+              {asset.media_type} {asset.width && asset.height ? `• ${asset.width}x${asset.height}` : ''}
+            </div>
           </div>
         </div>
 
