@@ -10,6 +10,7 @@ export default function AssetGallery({
   onIndexDirectory,
   onIndexPending,
   onAssetUpdated,
+  onOpenDiary,
   isLoading
 }) {
   const fileInputRef = useRef(null);
@@ -142,6 +143,29 @@ export default function AssetGallery({
           </button>
         </form>
       </div>
+
+      {/* Travel Log Approval Banner (Auto-Draft Mode) */}
+      {project?.config_override?.travel_log_mode === 'auto_draft' &&
+        !project?.config_override?.travel_log_approved &&
+        safeAssets.some((a) => a.is_indexed) && (
+          <div className="mb-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="text-[11px] text-amber-200 truncate">
+                AI indexed media. Review travel log to score relevance.
+              </span>
+            </div>
+            {onOpenDiary && (
+              <button
+                type="button"
+                onClick={onOpenDiary}
+                className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] transition shrink-0 shadow-sm"
+              >
+                Review Itinerary
+              </button>
+            )}
+          </div>
+        )}
 
       {/* Asset Grid */}
       <div className="flex-1 overflow-y-auto pr-1">

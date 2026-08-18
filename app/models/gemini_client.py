@@ -275,4 +275,143 @@ class GoogleAIStudioClient:
 
         raise RuntimeError(last_error or f"Failed to call Google AI Studio API for {model_name}")
 
+    async def draft_travel_log(
+        self,
+        model_name: str,
+        media_items: List[Dict[str, Any]],
+        project_title: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Drafts a rich, comprehensive day-by-day travel diary/itinerary from ALL indexed media items,
+        organizing full day timelines and synthesizing detailed multi-sentence narrative summaries.
+        """
+        api_key = self._get_api_key()
+        if not api_key:
+            raise ValueError("No Google AI Studio / Gemini API key configured.")
+
+        candidate_slugs = MODEL_API_MAP.get(model_name, [model_name, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"])
+
+        title_header = f"Trip Title: {project_title}\n" if project_title else ""
+
+        # Chronologically sort all media items
+        sorted_items = sorted(
+            media_items,
+            key=lambda x: str(x.get("capture_time") or "9999-99-99T99:99:99")
+        )
+
+        # Group items by date for clear prompt structure
+        grouped_by_date: Dict[str, List[Dict[str, Any]]] = {}
+        for it in sorted_items:
+            ts = str(it.get("capture_time") or "").strip()
+            date_key = ts.split("T")[0] if "T" in ts else (ts[:10] if len(ts) >= 10 else "Undated")
+            if date_key not in grouped_by_date:
+                grouped_by_date[date_key] = []
+            grouped_by_date[date_key].append(it)
+
+        # Format full media timeline grouped by date
+        media_sections = []
+        item_counter = 1
+        for date_key, items in grouped_by_date.items():
+            date_label = f"DATE: {date_key}" if date_key != "Undated" else "DATE: Sequence Bucket"
+            lines = [f"=== {date_label} ({len(items)} items recorded) ==="]
+            for it in items[:150]:  # Support up to 150 items per day without truncating the rest of the trip
+                ts = it.get("capture_time") or "Time unknown"
+                m_type = it.get("media_type") or "media"
+                caption = it.get("caption") or "Travel scene"
+                tags = ", ".join(it.get("tags") or [])
+                lines.append(f"  [{item_counter}] [{m_type.upper()}] Time: {ts} | Description: {caption} | Tags: {tags}")
+                item_counter += 1
+            media_sections.append("\n".join(lines))
+
+        media_context = "\n\n".join(media_sections)
+
+        prompt_instruction = (
+            f"You are an expert travel writer and montage story director.\n"
+            f"Below is a complete, chronological list of indexed photos and videos from a travel expedition, organized by day.\n\n"
+            f"{title_header}"
+            f"TOTAL MEDIA ITEMS: {len(sorted_items)}\n\n"
+            f"MEDIA TIMELINE & DESCRIPTIONS BY DAY:\n"
+            f"{media_context}\n\n"
+            f"TASK & WRITING INSTRUCTIONS:\n"
+            f"1. Structure the entire trip into sequential days (day_number 1, 2, 3...).\n"
+            f"2. For EVERY day, examine ALL media descriptions in that day's section (from morning start, midday explorations, afternoon discoveries, to evening/night activities).\n"
+            f"3. Write an evocative, specific 'title' for each day capturing the day's main destinations and experiences.\n"
+            f"4. Write a comprehensive, cohesive 'events' summary (3 to 6 vivid narrative sentences) for each day that incorporates ALL the sights, activities, culinary stops, landmarks, and atmospheres described across the day's media. DO NOT only summarize the first couple of items; synthesize the full arc of the day.\n"
+            f"5. Return ONLY a valid JSON object matching this schema:\n"
+            f"   - 'start_date': string (YYYY-MM-DD)\n"
+            f"   - 'finish_date': string (YYYY-MM-DD)\n"
+            f"   - 'diary_days': array of day objects: [\n"
+            f"       {{\n"
+            f"         'day_number': int,\n"
+            f"         'date': 'YYYY-MM-DD',\n"
+            f"         'title': 'Day Title',\n"
+            f"         'events': 'Comprehensive multi-sentence narrative summary of all media in this day',\n"
+            f"         'is_active': true,\n"
+            f"         'is_discarded': false\n"
+            f"       }}\n"
+            f"     ]\n"
+            f"   - 'narrative_text': string (cohesive full story combining each Day N (YYYY-MM-DD): [events] separated by newlines)"
+        )
+
+        payload = {
+            "contents": [{"parts": [{"text": prompt_instruction}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 8192,
+                "responseMimeType": "application/json"
+            }
+        }
+
+        last_error = None
+        for slug in candidate_slugs:
+            url = f"{self.base_url}/{slug}:generateContent?key={api_key}"
+            logger.info(f"[Google-AI] Calling '{slug}' to draft comprehensive travel log from {len(media_items)} media items...")
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.post(url, json=payload)
+                    if resp.status_code != 200:
+                        last_error = f"Google AI Studio Error {resp.status_code} on {slug}: {resp.text[:200]}"
+                        logger.warning(f"[Google-AI] {last_error}")
+                        continue
+
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        last_error = f"No candidates returned from {slug}"
+                        continue
+
+                    raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+                    cleaned_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
+                    cleaned_text = re.sub(r"^```\s*", "", cleaned_text)
+                    cleaned_text = re.sub(r"\s*```$", "", cleaned_text).strip()
+
+                    parsed = json.loads(cleaned_text)
+                    diary_days = parsed.get("diary_days", [])
+                    start_date = str(parsed.get("start_date", ""))
+                    finish_date = str(parsed.get("finish_date", ""))
+                    narrative_text = str(parsed.get("narrative_text", ""))
+
+                    if not narrative_text and diary_days:
+                        lines = []
+                        for d in diary_days:
+                            d_num = d.get("day_number", 1)
+                            d_date = f" ({d['date']})" if d.get("date") else ""
+                            lines.append(f"Day {d_num}{d_date}: {d.get('events', '')}")
+                        narrative_text = "\n".join(lines)
+
+                    logger.info(f"[Google-AI] ✓ Model '{slug}' successfully drafted comprehensive travel log ({len(diary_days)} days).")
+                    return {
+                        "start_date": start_date,
+                        "finish_date": finish_date,
+                        "diary_days": diary_days,
+                        "narrative_text": narrative_text
+                    }
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"[Google-AI] Exception on '{slug}': {e}")
+                continue
+
+        raise RuntimeError(last_error or f"Failed to draft travel log via Google AI Studio for {model_name}")
+
 gemini_client = GoogleAIStudioClient()
+

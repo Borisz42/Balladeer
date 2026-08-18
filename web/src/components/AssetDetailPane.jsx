@@ -91,6 +91,87 @@ export default function AssetDetailPane({ project, asset, onAssetUpdated }) {
     }
   }, [asset, project?.id]);
 
+  // Chart configuration & hooks (MUST be called unconditionally before any early returns)
+  const chartPoints = Array.isArray(frameScoresData?.frame_scores) ? frameScoresData.frame_scores : [];
+  const chartLabels = chartPoints.map((p) => (p && typeof p.t === 'number' ? `${p.t.toFixed(0)}s` : '0s'));
+  const maxDuration = (asset && asset.duration_sec) || (chartPoints.length > 0 ? (chartPoints[chartPoints.length - 1]?.t || 1) : 1);
+
+  const chartData = useMemo(() => ({
+    labels: chartLabels,
+    datasets: [
+      {
+        label: 'Composite (S_comp)',
+        data: chartPoints.map((p) => (p && typeof p.s_comp === 'number' ? p.s_comp : 0)),
+        borderColor: '#2dd4bf',
+        backgroundColor: 'rgba(45, 212, 191, 0.15)',
+        borderWidth: 1.5,
+        tension: 0.3,
+        fill: true,
+        pointRadius: 0
+      },
+      {
+        label: 'Relevance (S_rel)',
+        data: chartPoints.map((p) => (p && typeof p.s_rel === 'number' ? p.s_rel : 0)),
+        borderColor: '#38bdf8',
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderDash: [3, 3],
+        tension: 0.2,
+        pointRadius: 0
+      },
+      {
+        label: 'Aesthetic (S_aes)',
+        data: chartPoints.map((p) => (p && typeof p.s_aes === 'number' ? p.s_aes : 0)),
+        borderColor: '#fbbf24',
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderDash: [2, 2],
+        tension: 0.2,
+        pointRadius: 0
+      }
+    ]
+  }), [chartPoints, chartLabels]);
+
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          color: '#94a3b8',
+          font: { size: 9, family: 'monospace' },
+          boxWidth: 8,
+          padding: 4
+        }
+      },
+      tooltip: {
+        mode: 'index',
+        intersect: false,
+        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        titleColor: '#f8fafc',
+        bodyColor: '#cbd5e1',
+        borderColor: '#334155',
+        borderWidth: 1,
+        titleFont: { size: 10, family: 'monospace' },
+        bodyFont: { size: 9, family: 'monospace' }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(51, 65, 85, 0.2)' },
+        ticks: { color: '#64748b', font: { size: 8, family: 'monospace' }, maxTicksLimit: 8 }
+      },
+      y: {
+        min: 0,
+        max: 1.0,
+        grid: { color: 'rgba(51, 65, 85, 0.2)' },
+        ticks: { color: '#64748b', font: { size: 8, family: 'monospace' } }
+      }
+    }
+  }), []);
+
   if (!asset) {
     return (
       <div className="glass-panel rounded-2xl p-5 border border-slate-800 h-full flex flex-col items-center justify-center text-center select-none">
@@ -183,87 +264,6 @@ export default function AssetDetailPane({ project, asset, onAssetUpdated }) {
       setIsReindexing(false);
     }
   };
-
-  // Chart configuration
-  const chartPoints = Array.isArray(frameScoresData?.frame_scores) ? frameScoresData.frame_scores : [];
-  const chartLabels = chartPoints.map((p) => (p && typeof p.t === 'number' ? `${p.t.toFixed(0)}s` : '0s'));
-  const maxDuration = asset.duration_sec || (chartPoints.length > 0 ? (chartPoints[chartPoints.length - 1]?.t || 1) : 1);
-
-  const chartData = useMemo(() => ({
-    labels: chartLabels,
-    datasets: [
-      {
-        label: 'Composite (S_comp)',
-        data: chartPoints.map((p) => (p && typeof p.s_comp === 'number' ? p.s_comp : 0)),
-        borderColor: '#2dd4bf',
-        backgroundColor: 'rgba(45, 212, 191, 0.15)',
-        borderWidth: 1.5,
-        tension: 0.3,
-        fill: true,
-        pointRadius: 0
-      },
-      {
-        label: 'Relevance (S_rel)',
-        data: chartPoints.map((p) => (p && typeof p.s_rel === 'number' ? p.s_rel : 0)),
-        borderColor: '#38bdf8',
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderDash: [3, 3],
-        tension: 0.2,
-        pointRadius: 0
-      },
-      {
-        label: 'Aesthetic (S_aes)',
-        data: chartPoints.map((p) => (p && typeof p.s_aes === 'number' ? p.s_aes : 0)),
-        borderColor: '#fbbf24',
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderDash: [2, 2],
-        tension: 0.2,
-        pointRadius: 0
-      }
-    ]
-  }), [chartPoints, chartLabels]);
-
-  const chartOptions = useMemo(() => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    plugins: {
-      legend: {
-        position: 'top',
-        labels: {
-          color: '#94a3b8',
-          font: { size: 9, family: 'monospace' },
-          boxWidth: 8,
-          padding: 4
-        }
-      },
-      tooltip: {
-        mode: 'index',
-        intersect: false,
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-        titleColor: '#f8fafc',
-        bodyColor: '#cbd5e1',
-        borderColor: '#334155',
-        borderWidth: 1,
-        titleFont: { size: 10, family: 'monospace' },
-        bodyFont: { size: 9, family: 'monospace' }
-      }
-    },
-    scales: {
-      x: {
-        grid: { color: 'rgba(51, 65, 85, 0.2)' },
-        ticks: { color: '#64748b', font: { size: 8, family: 'monospace' }, maxTicksLimit: 8 }
-      },
-      y: {
-        min: 0,
-        max: 1.0,
-        grid: { color: 'rgba(51, 65, 85, 0.2)' },
-        ticks: { color: '#64748b', font: { size: 8, family: 'monospace' } }
-      }
-    }
-  }), []);
 
   const seekFromChartEvent = (e) => {
     if (!videoRef.current || chartPoints.length === 0) return;
@@ -447,20 +447,32 @@ export default function AssetDetailPane({ project, asset, onAssetUpdated }) {
         )}
 
         {/* Dual Relevance Scores */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className={`p-2 rounded-lg border ${asset.is_indexed ? ((asset.relevance_score_daily || 0) > 0.7 ? 'bg-teal-500/10 border-teal-500/30' : (asset.relevance_score_daily || 0) > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-900 border-slate-800'}`}>
-            <span className="text-[9px] text-slate-400 block font-semibold uppercase tracking-wider">Day Relevance</span>
-            <strong className={`text-base font-bold ${asset.is_indexed ? ((asset.relevance_score_daily || 0) > 0.7 ? 'text-teal-400' : (asset.relevance_score_daily || 0) > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
-              {asset.is_indexed ? `${Math.round((asset.relevance_score_daily || 0) * 100)}%` : 'N/A'}
-            </strong>
+        {project?.config_override?.travel_log_mode === 'auto_draft' && !project?.config_override?.travel_log_approved ? (
+          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span className="font-semibold text-[11px]">Relevance: Pending Travel Log Approval</span>
+            </div>
+            <span className="text-[9px] font-mono uppercase bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30">
+              0.0 Pending
+            </span>
           </div>
-          <div className={`p-2 rounded-lg border ${asset.is_indexed ? ((asset.relevance_score_overall || 0) > 0.7 ? 'bg-purple-500/10 border-purple-500/30' : (asset.relevance_score_overall || 0) > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-900 border-slate-800'}`}>
-            <span className="text-[9px] text-slate-400 block font-semibold uppercase tracking-wider">Trip Narrative</span>
-            <strong className={`text-base font-bold ${asset.is_indexed ? ((asset.relevance_score_overall || 0) > 0.7 ? 'text-purple-400' : (asset.relevance_score_overall || 0) > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
-              {asset.is_indexed ? `${Math.round((asset.relevance_score_overall || 0) * 100)}%` : 'N/A'}
-            </strong>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <div className={`p-2 rounded-lg border ${asset.is_indexed ? ((asset.relevance_score_daily || 0) > 0.7 ? 'bg-teal-500/10 border-teal-500/30' : (asset.relevance_score_daily || 0) > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-900 border-slate-800'}`}>
+              <span className="text-[9px] text-slate-400 block font-semibold uppercase tracking-wider">Day Relevance</span>
+              <strong className={`text-base font-bold ${asset.is_indexed ? ((asset.relevance_score_daily || 0) > 0.7 ? 'text-teal-400' : (asset.relevance_score_daily || 0) > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
+                {asset.is_indexed ? `${Math.round((asset.relevance_score_daily || 0) * 100)}%` : 'N/A'}
+              </strong>
+            </div>
+            <div className={`p-2 rounded-lg border ${asset.is_indexed ? ((asset.relevance_score_overall || 0) > 0.7 ? 'bg-purple-500/10 border-purple-500/30' : (asset.relevance_score_overall || 0) > 0.4 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30') : 'bg-slate-900 border-slate-800'}`}>
+              <span className="text-[9px] text-slate-400 block font-semibold uppercase tracking-wider">Trip Narrative</span>
+              <strong className={`text-base font-bold ${asset.is_indexed ? ((asset.relevance_score_overall || 0) > 0.7 ? 'text-purple-400' : (asset.relevance_score_overall || 0) > 0.4 ? 'text-amber-400' : 'text-rose-400') : 'text-slate-500'}`}>
+                {asset.is_indexed ? `${Math.round((asset.relevance_score_overall || 0) * 100)}%` : 'N/A'}
+              </strong>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* AI Caption & Concept */}
         <div className="space-y-1">

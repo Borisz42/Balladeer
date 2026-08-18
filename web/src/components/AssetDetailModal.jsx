@@ -104,6 +104,88 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Chart configuration & hooks (unconditional)
+  const chartPoints = Array.isArray(frameScoresData?.frame_scores) ? frameScoresData.frame_scores : [];
+  const chartLabels = chartPoints.map((p) => (p && typeof p.t === 'number' ? `${p.t.toFixed(0)}s` : '0s'));
+  const maxDuration = (asset && asset.duration_sec) || (chartPoints.length > 0 ? (chartPoints[chartPoints.length - 1]?.t || 1) : 1);
+
+  const chartData = useMemo(() => ({
+    labels: chartLabels,
+    datasets: [
+      {
+        label: 'Composite Score (S_comp)',
+        data: chartPoints.map((p) => (p && typeof p.s_comp === 'number' ? p.s_comp : 0)),
+        borderColor: '#2dd4bf',
+        backgroundColor: 'rgba(45, 212, 191, 0.15)',
+        borderWidth: 2,
+        tension: 0.3,
+        fill: true,
+        pointRadius: chartPoints.length > 30 ? 0 : 3,
+        pointHoverRadius: 5
+      },
+      {
+        label: 'Relevance (S_rel)',
+        data: chartPoints.map((p) => (p && typeof p.s_rel === 'number' ? p.s_rel : 0)),
+        borderColor: '#38bdf8',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [4, 4],
+        tension: 0.2,
+        pointRadius: 0
+      },
+      {
+        label: 'Aesthetic & Sharpness (S_aes)',
+        data: chartPoints.map((p) => (p && typeof p.s_aes === 'number' ? p.s_aes : 0)),
+        borderColor: '#fbbf24',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [2, 2],
+        tension: 0.2,
+        pointRadius: 0
+      }
+    ]
+  }), [chartPoints, chartLabels]);
+
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          color: '#94a3b8',
+          font: { size: 10, family: 'monospace' },
+          boxWidth: 12,
+          padding: 8
+        }
+      },
+      tooltip: {
+        mode: 'index',
+        intersect: false,
+        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        titleColor: '#f8fafc',
+        bodyColor: '#cbd5e1',
+        borderColor: '#334155',
+        borderWidth: 1,
+        titleFont: { size: 10, family: 'monospace' },
+        bodyFont: { size: 9, family: 'monospace' }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(51, 65, 85, 0.2)' },
+        ticks: { color: '#64748b', font: { size: 9, family: 'monospace' }, maxTicksLimit: 10 }
+      },
+      y: {
+        min: 0,
+        max: 1.0,
+        grid: { color: 'rgba(51, 65, 85, 0.2)' },
+        ticks: { color: '#64748b', font: { size: 9, family: 'monospace' } }
+      }
+    }
+  }), []);
+
   if (!isOpen || !asset) return null;
 
   const isVideo = asset.media_type === 'video';
@@ -194,88 +276,6 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
       return isoString;
     }
   };
-
-  // Chart configuration
-  const chartPoints = Array.isArray(frameScoresData?.frame_scores) ? frameScoresData.frame_scores : [];
-  const chartLabels = chartPoints.map((p) => (p && typeof p.t === 'number' ? `${p.t.toFixed(0)}s` : '0s'));
-  const maxDuration = asset.duration_sec || (chartPoints.length > 0 ? (chartPoints[chartPoints.length - 1]?.t || 1) : 1);
-
-  const chartData = useMemo(() => ({
-    labels: chartLabels,
-    datasets: [
-      {
-        label: 'Composite Score (S_comp)',
-        data: chartPoints.map((p) => (p && typeof p.s_comp === 'number' ? p.s_comp : 0)),
-        borderColor: '#2dd4bf',
-        backgroundColor: 'rgba(45, 212, 191, 0.15)',
-        borderWidth: 2,
-        tension: 0.3,
-        fill: true,
-        pointRadius: chartPoints.length > 30 ? 0 : 3,
-        pointHoverRadius: 5
-      },
-      {
-        label: 'Relevance (S_rel)',
-        data: chartPoints.map((p) => (p && typeof p.s_rel === 'number' ? p.s_rel : 0)),
-        borderColor: '#38bdf8',
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderDash: [4, 4],
-        tension: 0.2,
-        pointRadius: 0
-      },
-      {
-        label: 'Aesthetic & Sharpness (S_aes)',
-        data: chartPoints.map((p) => (p && typeof p.s_aes === 'number' ? p.s_aes : 0)),
-        borderColor: '#fbbf24',
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderDash: [2, 2],
-        tension: 0.2,
-        pointRadius: 0
-      }
-    ]
-  }), [chartPoints, chartLabels]);
-
-  const chartOptions = useMemo(() => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    plugins: {
-      legend: {
-        position: 'top',
-        labels: {
-          color: '#94a3b8',
-          font: { size: 10, family: 'monospace' },
-          boxWidth: 12,
-          padding: 8
-        }
-      },
-      tooltip: {
-        mode: 'index',
-        intersect: false,
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-        titleColor: '#f8fafc',
-        bodyColor: '#cbd5e1',
-        borderColor: '#334155',
-        borderWidth: 1,
-        titleFont: { size: 11, family: 'monospace' },
-        bodyFont: { size: 10, family: 'monospace' }
-      }
-    },
-    scales: {
-      x: {
-        grid: { color: 'rgba(51, 65, 85, 0.25)' },
-        ticks: { color: '#64748b', font: { size: 9, family: 'monospace' }, maxTicksLimit: 12 }
-      },
-      y: {
-        min: 0,
-        max: 1.0,
-        grid: { color: 'rgba(51, 65, 85, 0.25)' },
-        ticks: { color: '#64748b', font: { size: 9, family: 'monospace' } }
-      }
-    }
-  }), []);
 
   const seekFromChartEvent = (e) => {
     if (!videoRef.current || chartPoints.length === 0) return;

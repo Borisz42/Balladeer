@@ -32,13 +32,20 @@ beat_solver = BeatSolver()
 compositor = VideoCompositor()
 
 from app.pipeline.rephraser import diary_rephraser
+from app.models.model_router import model_router, TaskType
+from app.models.gemini_client import gemini_client
 
 class CreateProjectRequest(BaseModel):
     title: str
-    narrative_text: str
+    narrative_text: Optional[str] = ""
     config_override: Optional[Dict[str, Any]] = None
 
 class UpdateProjectRequest(BaseModel):
+    title: Optional[str] = None
+    narrative_text: Optional[str] = None
+    config_override: Optional[Dict[str, Any]] = None
+
+class ApproveTravelLogRequest(BaseModel):
     title: Optional[str] = None
     narrative_text: Optional[str] = None
     config_override: Optional[Dict[str, Any]] = None
@@ -154,6 +161,105 @@ def sync_diary_dates(project_id: str):
     diary_days = (proj.config_override or {}).get("diary_days", [])
     updated = indexer.sync_assets_with_diary_dates(project_id, diary_days)
     return {"status": "synced", "project_id": project_id, "updated_assets": updated}
+
+@router.post("/{project_id}/draft-travel-log")
+async def draft_travel_log(project_id: str):
+    """
+    Synthesizes a structured day-by-day travel diary/itinerary from indexed media
+    items and their metadata (captions, tags, timestamps/dates, locations).
+    """
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    assets = db.get_project_assets(project_id)
+    if not assets:
+        raise HTTPException(status_code=400, detail="No media assets imported to draft travel log from")
+
+    media_items = [
+        {
+            "id": a.id,
+            "file_path": a.file_path,
+            "media_type": a.media_type,
+            "capture_time": a.capture_time,
+            "caption": a.caption,
+            "tags": a.tags,
+            "quality_score": a.quality_score
+        }
+        for a in assets
+    ]
+
+    draft = None
+    try:
+        est_tokens = max(1200, len(media_items) * 35)
+        draft, model_used = await model_router.execute_task(
+            task_type=TaskType.STORY_LYRICS,
+            prompt_payload=proj.title or "Travel Montage",
+            estimated_tokens=est_tokens,
+            cloud_caller=lambda m, p: gemini_client.draft_travel_log(m, media_items, proj.title),
+            local_fallback=lambda p: diary_rephraser.draft_travel_log_from_media(media_items, proj.title)
+        )
+    except Exception as e:
+        logger.warning(f"AI travel log draft fallback: {e}")
+        draft = diary_rephraser.draft_travel_log_from_media(media_items, proj.title)
+
+    existing_cfg = proj.config_override or {}
+    updated_cfg = {
+        **existing_cfg,
+        "start_date": draft.get("start_date", existing_cfg.get("start_date", "")),
+        "finish_date": draft.get("finish_date", existing_cfg.get("finish_date", "")),
+        "diary_days": draft.get("diary_days", [])
+    }
+
+    db.update_project(
+        project_id=project_id,
+        narrative_text=draft.get("narrative_text", ""),
+        config_override=updated_cfg
+    )
+
+    return {
+        "status": "drafted",
+        "project_id": project_id,
+        "draft": draft
+    }
+
+@router.post("/{project_id}/approve-travel-log", response_model=ProjectDetailResponse)
+async def approve_travel_log(project_id: str, req: Optional[ApproveTravelLogRequest] = None):
+    """
+    Approves the travel log/itinerary, marks travel_log_approved=True,
+    and calculates all relevance scores (daily & overall) for media assets and video segments.
+    """
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    cfg = proj.config_override or {}
+    if req and req.config_override:
+        cfg = {**cfg, **req.config_override}
+    cfg["travel_log_approved"] = True
+
+    updated_title = req.title if req and req.title is not None else proj.title
+    updated_narrative = req.narrative_text if req and req.narrative_text is not None else proj.narrative_text
+
+    db.update_project(
+        project_id=project_id,
+        title=updated_title,
+        narrative_text=updated_narrative,
+        config_override=cfg
+    )
+
+    # Compute relevance scores for all assets against approved travel log
+    res = indexer.compute_project_relevance_scores(project_id)
+
+    await progress_tracker.emit(
+        project_id=project_id,
+        phase="ready",
+        progress=100.0,
+        message=f"Travel log approved! Generated relevance scores for {res.get('updated_assets', 0)} assets."
+    )
+
+    return get_project_detail(project_id)
+
 
 @router.get("/{project_id}", response_model=ProjectDetailResponse)
 def get_project_detail(project_id: str):

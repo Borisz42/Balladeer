@@ -488,12 +488,27 @@ class MediaIndexer:
         scaled_sim = 0.50 + (sim * 3.5)
         return float(np.clip(scaled_sim, 0.15, 0.95))
 
+    def is_travel_log_ready(self, project_id: str) -> bool:
+        """
+        Determines if a project's travel log is ready for relevance score calculation.
+        For auto_draft mode, requires travel_log_approved=True.
+        """
+        project = db.get_project(project_id)
+        if not project:
+            return False
+        cfg = project.config_override or {}
+        mode = cfg.get("travel_log_mode", "manual")
+        if mode == "auto_draft":
+            return bool(cfg.get("travel_log_approved", False))
+        return bool(project.narrative_text and project.narrative_text.strip()) or bool(cfg.get("diary_days"))
+
     def process_video_and_extract_segments(
         self,
         asset: MediaAssetModel,
         full_log_emb: Optional[List[float]],
         day_log_emb: Optional[List[float]],
-        window_sec: int = 3
+        window_sec: int = 3,
+        calculate_relevance: bool = True
     ) -> Tuple[List[VideoSegmentModel], Path]:
         """
         Stage 1: Ultra-Fast Frame Scoring & Best Shot Selection
@@ -524,9 +539,9 @@ class MediaIndexer:
                 while sec_t < end_t:
                     fallback_pts.append({
                         "t": round(sec_t, 2),
-                        "s_rel": 0.65,
+                        "s_rel": 0.65 if calculate_relevance else 0.0,
                         "s_aes": 0.70,
-                        "s_comp": round(0.68 + (0.08 * np.sin(sec_t * 0.9)), 3)
+                        "s_comp": round(0.68 + (0.08 * np.sin(sec_t * 0.9)), 3) if calculate_relevance else round(0.65 * 0.70 + 0.35 * 0.50, 3)
                     })
                     sec_t += 1.0
 
@@ -537,7 +552,7 @@ class MediaIndexer:
                         start_time=round(curr_t, 2),
                         end_time=round(end_t, 2),
                         motion_score=round(max(0.1, min(1.0, motion)), 2),
-                        relevance_score=0.65,
+                        relevance_score=0.65 if calculate_relevance else 0.0,
                         best_shot_start=round(curr_t, 2),
                         best_shot_end=round(min(curr_t + 2.0, end_t), 2),
                         description=f"Action segment {s_idx+1}",
@@ -580,13 +595,15 @@ class MediaIndexer:
                 s_aes = heuristic_aes
             
             # 2. Relevance score against diary days / full log
-            if day_log_emb or full_log_emb:
+            if calculate_relevance and (day_log_emb or full_log_emb):
                 s_rel_daily = self.cosine_similarity(emb, day_log_emb) if day_log_emb else 0.65
                 s_rel_full = self.cosine_similarity(emb, full_log_emb) if full_log_emb else 0.65
                 s_rel = round((0.6 * s_rel_daily) + (0.4 * s_rel_full), 3)
-            else:
+            elif calculate_relevance:
                 # Default baseline with slight visual richness variance
                 s_rel = round(0.60 + 0.15 * np.sin(i * 0.8), 3)
+            else:
+                s_rel = 0.0
 
             # 3. Frame visual motion/transition delta
             if i > 0:
@@ -598,7 +615,10 @@ class MediaIndexer:
                 s_mot = 0.50
 
             # 4. Multi-factor composite timeline score
-            s_comp = round((0.45 * s_rel) + (0.35 * s_aes) + (0.20 * s_mot), 3)
+            if calculate_relevance:
+                s_comp = round((0.45 * s_rel) + (0.35 * s_aes) + (0.20 * s_mot), 3)
+            else:
+                s_comp = round((0.60 * s_aes) + (0.40 * s_mot), 3)
             
             composite_scores.append(s_comp)
             s_rel_arr.append(s_rel)
@@ -809,7 +829,12 @@ class MediaIndexer:
             return []
 
         settings = get_settings()
-        full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        log_ready = self.is_travel_log_ready(project_id)
+        if log_ready:
+            full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        else:
+            full_log_emb, day_embs = None, {}
+
         project = db.get_project(project_id)
         diary_days = (project.config_override or {}).get("diary_days", []) if project else []
 
@@ -831,7 +856,7 @@ class MediaIndexer:
                 meta_item = self.extract_image_metadata(p_asset) if asset.media_type == "image" else self.extract_video_metadata(p_asset)
                 metadatas.append(meta_item)
 
-                matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+                matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days) if log_ready else None
                 day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
                 day_log_emb = day_embs.get(day_key) if day_key else None
 
@@ -841,7 +866,8 @@ class MediaIndexer:
                         asset=asset,
                         full_log_emb=full_log_emb,
                         day_log_emb=day_log_emb,
-                        window_sec=shot_window
+                        window_sec=shot_window,
+                        calculate_relevance=log_ready
                     )
                     video_segments_bundle[asset.id] = segs
                     visual_paths.append(rep_frame_path)
@@ -893,21 +919,30 @@ class MediaIndexer:
                 vlm_score = float(analysis.get("quality_score", 7.0))
                 combined_quality = round(max(1.0, min(10.0, 0.5 * siglip_score + 0.5 * vlm_score)), 1)
 
-                matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
-                day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
-                day_log_emb = day_embs.get(day_key) if day_key else None
+                if log_ready:
+                    matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+                    day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
+                    day_log_emb = day_embs.get(day_key) if day_key else None
 
-                rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else 0.65
-                rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
+                    rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else 0.65
+                    rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
 
-                if asset.media_type == "video" and asset.id in video_segments_bundle:
-                    segs = video_segments_bundle[asset.id]
-                    for s_idx, s in enumerate(segs):
-                        s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
-                    db.save_video_segments(segs)
-                    if segs:
-                        seg_rel_avg = float(np.mean([s.relevance_score for s in segs if s.relevance_score > 0] or [0.65]))
-                        rel_daily = round(seg_rel_avg, 3)
+                    if asset.media_type == "video" and asset.id in video_segments_bundle:
+                        segs = video_segments_bundle[asset.id]
+                        for s_idx, s in enumerate(segs):
+                            s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
+                        db.save_video_segments(segs)
+                        if segs:
+                            seg_rel_avg = float(np.mean([s.relevance_score for s in segs if s.relevance_score > 0] or [0.65]))
+                            rel_daily = round(seg_rel_avg, 3)
+                else:
+                    rel_daily = 0.0
+                    rel_overall = 0.0
+                    if asset.media_type == "video" and asset.id in video_segments_bundle:
+                        segs = video_segments_bundle[asset.id]
+                        for s_idx, s in enumerate(segs):
+                            s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
+                        db.save_video_segments(segs)
 
                 updated = db.update_media_asset(asset.id, {
                     "caption": analysis["caption"],
@@ -944,10 +979,15 @@ class MediaIndexer:
             raise FileNotFoundError(f"Media file not found at {asset.file_path}")
 
         meta = self.extract_image_metadata(p) if asset.media_type == "image" else self.extract_video_metadata(p)
-        full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        log_ready = self.is_travel_log_ready(project_id)
+        if log_ready:
+            full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        else:
+            full_log_emb, day_embs = None, {}
+
         project = db.get_project(project_id)
         diary_days = (project.config_override or {}).get("diary_days", []) if project else []
-        matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+        matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days) if log_ready else None
         day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
         day_log_emb = day_embs.get(day_key) if day_key else None
 
@@ -957,7 +997,8 @@ class MediaIndexer:
                 asset=asset,
                 full_log_emb=full_log_emb,
                 day_log_emb=day_log_emb,
-                window_sec=shot_window
+                window_sec=shot_window,
+                calculate_relevance=log_ready
             )
         else:
             segs = []
@@ -987,15 +1028,23 @@ class MediaIndexer:
         vlm_score = float(analysis.get("quality_score", 7.0))
         combined_quality = round(max(1.0, min(10.0, 0.5 * siglip_score + 0.5 * vlm_score)), 1)
 
-        rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else 0.65
-        rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
+        if log_ready:
+            rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else 0.65
+            rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
 
-        if asset.media_type == "video" and segs:
-            for s_idx, s in enumerate(segs):
-                s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
-            db.save_video_segments(segs)
-            seg_rel_avg = float(np.mean([s.relevance_score for s in segs if s.relevance_score > 0] or [0.65]))
-            rel_daily = round(seg_rel_avg, 3)
+            if asset.media_type == "video" and segs:
+                for s_idx, s in enumerate(segs):
+                    s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
+                db.save_video_segments(segs)
+                seg_rel_avg = float(np.mean([s.relevance_score for s in segs if s.relevance_score > 0] or [0.65]))
+                rel_daily = round(seg_rel_avg, 3)
+        else:
+            rel_daily = 0.0
+            rel_overall = 0.0
+            if asset.media_type == "video" and segs:
+                for s_idx, s in enumerate(segs):
+                    s.description = f"{analysis['caption']} (Part {s_idx+1})" if s_idx > 0 else analysis['caption']
+                db.save_video_segments(segs)
 
         return db.update_media_asset(asset.id, {
             "caption": analysis["caption"],
@@ -1020,14 +1069,20 @@ class MediaIndexer:
         vlm_score = float(vlm_res.get("quality_score", 7.0))
         combined_quality = round(max(1.0, min(10.0, 0.5 * siglip_score + 0.5 * vlm_score)), 1)
 
-        full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
-        rel_daily = round(self.cosine_similarity(emb, None), 3)
-        rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
+        log_ready = self.is_travel_log_ready(project_id)
+        if log_ready:
+            full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+            rel_daily = round(self.cosine_similarity(emb, None), 3)
+            rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
+        else:
+            full_log_emb, day_embs = None, {}
+            rel_daily = 0.0
+            rel_overall = 0.0
 
         if asset.media_type == "video":
-            segs, _ = self.process_video_and_extract_segments(asset, full_log_emb, None)
+            segs, _ = self.process_video_and_extract_segments(asset, full_log_emb, None, calculate_relevance=log_ready)
             db.save_video_segments(segs)
-            if segs:
+            if segs and log_ready:
                 rel_daily = round(float(np.mean([s.relevance_score for s in segs])), 3)
 
         target_model = getattr(self.settings.indexing, "local_model", "qwen3.5-4b") or "qwen3.5-4b"
@@ -1042,6 +1097,76 @@ class MediaIndexer:
             "indexed_by_model": f"local-{target_model}"
         })
 
+    def compute_project_relevance_scores(self, project_id: str) -> Dict[str, Any]:
+        """
+        Calculates and updates relevance scores (daily & overall) for all assets
+        and video segments against the approved travel log narrative and diary days.
+        """
+        project = db.get_project(project_id)
+        if not project:
+            raise ValueError(f"Project not found: {project_id}")
+
+        full_log_emb, day_embs = self.get_project_log_embeddings(project_id)
+        assets = db.get_project_assets(project_id)
+        diary_days = (project.config_override or {}).get("diary_days", [])
+
+        updated_assets_count = 0
+        updated_segments_count = 0
+
+        for asset in assets:
+            emb = asset.embedding
+            if not emb:
+                p = Path(asset.file_path)
+                thumb = Path(self.get_thumbnail_path(asset.id))
+                emb = self.generate_siglip_embedding(thumb if thumb.exists() else (asset.caption or p.name))
+
+            matched_day = self.match_capture_time_to_day(asset.capture_time, diary_days)
+            day_key = str(matched_day.get("date", f"day_{matched_day.get('day_number', 1)}")) if matched_day else None
+            day_log_emb = day_embs.get(day_key) if day_key else None
+
+            rel_daily = round(self.cosine_similarity(emb, day_log_emb), 3) if day_log_emb else (round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65)
+            rel_overall = round(self.cosine_similarity(emb, full_log_emb), 3) if full_log_emb else 0.65
+
+            if asset.media_type == "video":
+                segments = db.get_video_segments(asset.id)
+                if segments:
+                    for seg in segments:
+                        seg_emb = seg.embedding or emb
+                        seg_rel_daily = self.cosine_similarity(seg_emb, day_log_emb) if day_log_emb else (self.cosine_similarity(seg_emb, full_log_emb) if full_log_emb else 0.65)
+                        seg_rel_full = self.cosine_similarity(seg_emb, full_log_emb) if full_log_emb else 0.65
+                        seg_rel = round((0.6 * seg_rel_daily) + (0.4 * seg_rel_full), 3)
+                        seg.relevance_score = seg_rel
+
+                        if seg.frame_scores:
+                            try:
+                                pts = json.loads(seg.frame_scores)
+                                for pt in pts:
+                                    pt["s_rel"] = seg_rel
+                                    s_aes = pt.get("s_aes", 0.70)
+                                    s_mot = 0.50
+                                    pt["s_comp"] = round((0.45 * seg_rel) + (0.35 * s_aes) + (0.20 * s_mot), 3)
+                                seg.frame_scores = json.dumps(pts)
+                            except Exception:
+                                pass
+                        updated_segments_count += 1
+                    db.save_video_segments(segments)
+                    seg_rel_avg = float(np.mean([s.relevance_score for s in segments if s.relevance_score > 0] or [rel_daily]))
+                    rel_daily = round(seg_rel_avg, 3)
+
+            db.update_media_asset(asset.id, {
+                "relevance_score_daily": rel_daily,
+                "relevance_score_overall": rel_overall,
+                "embedding": emb
+            })
+            updated_assets_count += 1
+
+        self.sync_assets_with_diary_dates(project_id, diary_days)
+
+        return {
+            "project_id": project_id,
+            "updated_assets": updated_assets_count,
+            "updated_segments": updated_segments_count
+        }
 
     async def index_media_batch(
         self,
@@ -1062,3 +1187,4 @@ class MediaIndexer:
 
 media_indexer = MediaIndexer()
 indexer = media_indexer
+

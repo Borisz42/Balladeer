@@ -19,10 +19,12 @@ import {
   listProjects,
   getProject,
   createProject,
+  updateProjectDiary,
   renameProject,
   deleteProject,
   batchDeleteProjects,
-  updateProjectDiary,
+  draftTravelLog,
+  approveTravelLog,
   uploadMediaFiles,
   indexDirectory,
   indexPendingMedia,
@@ -270,6 +272,18 @@ export default function App() {
       await loadHealthAndProjects();
     } catch (err) {
       console.error('Failed to save project diary:', err);
+      throw err;
+    }
+  };
+
+  const handleApproveTravelLog = async (title, narrativeText, configOverride) => {
+    if (!currentProjectId) return;
+    try {
+      await approveTravelLog(currentProjectId, { title, narrativeText, configOverride });
+      await loadProjectDetail(currentProjectId);
+      await loadHealthAndProjects();
+    } catch (err) {
+      console.error('Failed to approve travel log:', err);
       throw err;
     }
   };
@@ -555,6 +569,7 @@ export default function App() {
                 onIndexDirectory={handleIndexDirectory}
                 onIndexPending={handleIndexPending}
                 onAssetUpdated={() => loadProjectDetail(currentProjectId)}
+                onOpenDiary={() => setIsDiaryModalOpen(true)}
                 isLoading={isLoading}
               />
             </div>
@@ -658,6 +673,7 @@ export default function App() {
         onClose={() => setIsDiaryModalOpen(false)}
         project={projectDetail?.project}
         onSave={handleSaveDiary}
+        onApprove={handleApproveTravelLog}
       />
 
       <AssetSwapModal

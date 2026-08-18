@@ -85,6 +85,34 @@ export async function rephraseDiary(params) {
   return res.json();
 }
 
+export async function draftTravelLog(projectId) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/draft-travel-log`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to draft travel log' }));
+    throw new Error(err.detail || 'Failed to draft travel log');
+  }
+  return res.json();
+}
+
+export async function approveTravelLog(projectId, { title, narrativeText, configOverride } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/approve-travel-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      narrative_text: narrativeText,
+      config_override: configOverride
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to approve travel log' }));
+    throw new Error(err.detail || 'Failed to approve travel log');
+  }
+  return res.json();
+}
+
 export async function syncProjectDiaryDates(projectId) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/sync-diary-dates`, {
     method: 'POST'

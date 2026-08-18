@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Sliders, Image, Film, Music, Smartphone, Monitor, Square } from 'lucide-react';
+import { X, Sparkles, Sliders, Image, Film, Music, Smartphone, Monitor, Square, FileText, Wand2, Check } from 'lucide-react';
 import StructuredDiaryInput from './StructuredDiaryInput';
 
 export default function NewProjectModal({ isOpen, onClose, onCreate }) {
   const [title, setTitle] = useState('');
+  const [travelLogMode, setTravelLogMode] = useState('auto_draft'); // 'auto_draft' | 'manual'
   const [narrativeText, setNarrativeText] = useState('');
   const [diaryDays, setDiaryDays] = useState([]);
   const [dateRange, setDateRange] = useState({ startDate: '', finishDate: '' });
@@ -27,7 +28,8 @@ export default function NewProjectModal({ isOpen, onClose, onCreate }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim() || !narrativeText.trim()) return;
+    if (!title.trim()) return;
+    if (travelLogMode === 'manual' && !narrativeText.trim()) return;
 
     setIsSubmitting(true);
     try {
@@ -42,11 +44,13 @@ export default function NewProjectModal({ isOpen, onClose, onCreate }) {
         audio: {
           is_instrumental: musicMode === 'instrumental'
         },
-        start_date: dateRange.startDate,
-        finish_date: dateRange.finishDate,
-        diary_days: diaryDays
+        start_date: travelLogMode === 'manual' ? dateRange.startDate : '',
+        finish_date: travelLogMode === 'manual' ? dateRange.finishDate : '',
+        diary_days: travelLogMode === 'manual' ? diaryDays : [],
+        travel_log_mode: travelLogMode,
+        travel_log_approved: travelLogMode === 'manual'
       };
-      await onCreate(title, narrativeText, configOverride);
+      await onCreate(title, travelLogMode === 'manual' ? narrativeText : '', configOverride);
       onClose();
     } catch (err) {
       console.error(err);
@@ -71,7 +75,7 @@ export default function NewProjectModal({ isOpen, onClose, onCreate }) {
           </div>
           <div>
             <h2 className="text-lg font-bold text-white">Create New Montage Project</h2>
-            <p className="text-xs text-slate-400">Configure day-by-day itinerary, aspect ratio &amp; musical constraints</p>
+            <p className="text-xs text-slate-400">Configure itinerary creation mode, aspect ratio &amp; musical constraints</p>
           </div>
         </div>
 
@@ -90,16 +94,72 @@ export default function NewProjectModal({ isOpen, onClose, onCreate }) {
             />
           </div>
 
-          {/* Structured Day-by-Day Diary Module */}
+          {/* Travel Log Itinerary Mode Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-              Trip Itinerary &amp; Narrative Diary
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+              Itinerary &amp; Travel Log Strategy
             </label>
-            <StructuredDiaryInput
-              initialNarrativeText={narrativeText}
-              onChange={handleDiaryChange}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setTravelLogMode('auto_draft')}
+                className={`p-3 rounded-xl border text-left transition flex flex-col gap-1.5 relative ${
+                  travelLogMode === 'auto_draft'
+                    ? 'border-teal-500 bg-teal-500/10 text-white shadow-lg shadow-teal-500/10'
+                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wand2 className={`w-4 h-4 ${travelLogMode === 'auto_draft' ? 'text-teal-400' : 'text-slate-400'}`} />
+                    <span className="text-xs font-bold">Auto-Draft from Media</span>
+                  </div>
+                  {travelLogMode === 'auto_draft' && (
+                    <span className="w-2 h-2 rounded-full bg-teal-400"></span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Import media first. AI will synthesize an itinerary from descriptions and timestamps. Relevance scores calculate upon your review &amp; approval.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTravelLogMode('manual')}
+                className={`p-3 rounded-xl border text-left transition flex flex-col gap-1.5 relative ${
+                  travelLogMode === 'manual'
+                    ? 'border-teal-500 bg-teal-500/10 text-white shadow-lg shadow-teal-500/10'
+                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className={`w-4 h-4 ${travelLogMode === 'manual' ? 'text-teal-400' : 'text-slate-400'}`} />
+                    <span className="text-xs font-bold">Manual / Custom Itinerary</span>
+                  </div>
+                  {travelLogMode === 'manual' && (
+                    <span className="w-2 h-2 rounded-full bg-teal-400"></span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Enter day-by-day dates and itinerary notes now before importing media. Relevance scores will calculate immediately during indexing.
+                </p>
+              </button>
+            </div>
           </div>
+
+          {/* Structured Day-by-Day Diary Module (Only shown if manual mode) */}
+          {travelLogMode === 'manual' && (
+            <div className="animate-fadeIn">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                Trip Itinerary &amp; Narrative Diary
+              </label>
+              <StructuredDiaryInput
+                initialNarrativeText={narrativeText}
+                onChange={handleDiaryChange}
+              />
+            </div>
+          )}
 
           {/* Aspect Ratio & Music Mode Selector */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
