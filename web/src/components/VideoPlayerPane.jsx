@@ -148,14 +148,37 @@ export default function VideoPlayerPane({
       return;
     }
 
+    const cfg = project?.config_override || {};
+    const vFx = cfg.video_effects || {};
+    const lStyle = cfg.lyrics_style || {};
+    const tOverlays = cfg.text_overlays || {};
+    const vConfig = cfg.video || {};
+
     const asset = activeSlice.asset;
     const isVideo = asset.media_type === 'video';
-    const isKenBurns = activeSlice.enable_ken_burns;
-    const bgMode = activeSlice.bg_mode || 'blurred_fill';
+    const bgMode = activeSlice.bg_mode || vFx.default_bg_mode || vConfig.default_bg_mode || 'blurred_fill';
+    const blurRadius = vFx.blur_radius !== undefined ? vFx.blur_radius : 28;
+    const enableKenBurns = activeSlice.enable_ken_burns !== undefined
+      ? activeSlice.enable_ken_burns
+      : (vFx.enable_ken_burns !== undefined ? vFx.enable_ken_burns : true);
+    const kenBurnsZoom = vFx.ken_burns_zoom !== undefined ? vFx.ken_burns_zoom : 1.15;
+    const colorFilter = vFx.color_filter || 'natural';
+    const enableVignette = vFx.enable_vignette || false;
 
-    const sliceDur = Math.max(0.1, activeSlice.timeline_end_sec - activeSlice.timeline_start_sec);
-    const sliceProgress = Math.max(0, Math.min(1, (currentTime - activeSlice.timeline_start_sec) / sliceDur));
-    const zoomFactor = (!isVideo && isKenBurns) ? 1.0 + sliceProgress * 0.12 : 1.0;
+    // Apply color grading LUT filter in CSS context or pixel filter
+    if (colorFilter === 'teal_orange') {
+      ctx.filter = 'contrast(1.15) saturate(1.25) hue-rotate(-10deg)';
+    } else if (colorFilter === 'warm_gold') {
+      ctx.filter = 'sepia(0.25) saturate(1.3) brightness(1.05)';
+    } else if (colorFilter === 'vintage_35mm') {
+      ctx.filter = 'sepia(0.35) contrast(0.95) saturate(0.85)';
+    } else if (colorFilter === 'cyberpunk') {
+      ctx.filter = 'contrast(1.3) saturate(1.6) hue-rotate(15deg)';
+    } else if (colorFilter === 'noir_bw') {
+      ctx.filter = 'grayscale(1) contrast(1.4)';
+    } else {
+      ctx.filter = 'none';
+    }
 
     // Determine the active visual source (video frame, cached photo, or thumbnail)
     const cachedImg = imageCacheRef.current.get(asset.id);
@@ -176,26 +199,44 @@ export default function VideoPlayerPane({
     }
 
     if (mediaSource && srcW > 0 && srcH > 0) {
-      // 1. Blurred Fill Backdrop
+      // 1. Background Rendering (Blurred Fill or Ambient Glow or Black)
       if (bgMode === 'blurred_fill') {
         ctx.save();
-        ctx.filter = 'blur(28px) brightness(0.45) saturate(1.4)';
+        ctx.filter = `blur(${blurRadius}px) brightness(0.55) saturate(1.3)`;
         ctx.drawImage(mediaSource, -30, -30, targetW + 60, targetH + 60);
         ctx.restore();
+      } else if (bgMode === 'ambient_glow') {
+        ctx.save();
+        ctx.filter = 'blur(45px) saturate(2.0) brightness(0.4)';
+        ctx.drawImage(mediaSource, -20, -20, targetW + 40, targetH + 40);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#05070d';
+        ctx.fillRect(0, 0, targetW, targetH);
       }
 
       // 2. Main Foreground Media with Aspect Fit & Ken Burns (for photos)
       ctx.save();
-      const imgRatio = srcW / srcH;
-      const canvasRatio = targetW / targetH;
+      const mediaAspect = srcW / srcH;
+      const canvasAspect = targetW / targetH;
 
       let drawW, drawH;
-      if (imgRatio > canvasRatio) {
+      if (mediaAspect > canvasAspect) {
         drawW = targetW;
-        drawH = targetW / imgRatio;
+        drawH = targetW / mediaAspect;
       } else {
         drawH = targetH;
-        drawW = targetH * imgRatio;
+        drawW = targetH * mediaAspect;
+      }
+
+      // Ken Burns dynamic pan/zoom
+      let zoomFactor = 1.0;
+      if (enableKenBurns && !isVideo) {
+        const sliceDur = Math.max(0.1, activeSlice.timeline_end_sec - activeSlice.timeline_start_sec);
+        const sliceProgress = Math.max(0, Math.min(1,
+          (currentTime - activeSlice.timeline_start_sec) / sliceDur
+        ));
+        zoomFactor = 1.0 + (kenBurnsZoom - 1.0) * sliceProgress;
       }
 
       const scaledW = drawW * zoomFactor;
@@ -205,64 +246,137 @@ export default function VideoPlayerPane({
 
       ctx.drawImage(mediaSource, posX, posY, scaledW, scaledH);
       ctx.restore();
-    } else {
-      // Loading state
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, 0, targetW, targetH);
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 22px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(asset.caption || asset.file_path.split(/[\\/]/).pop(), targetW / 2, targetH / 2);
     }
 
-    // 3. Subtitles & Real-time Karaoke Lyrics Ribbon
-    if (audioTrack?.is_instrumental) {
-      // Documentary Chapter Badge
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    // Reset filter for UI overlays
+    ctx.filter = 'none';
+
+    // Optional Vignette corner darkening
+    if (enableVignette) {
+      const grad = ctx.createRadialGradient(
+        targetW / 2, targetH / 2, Math.min(targetW, targetH) * 0.35,
+        targetW / 2, targetH / 2, Math.max(targetW, targetH) * 0.7
+      );
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.65)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, targetW, targetH);
+    }
+
+    // 3. OVERLAYS: Creator Watermark Badge (Top Right)
+    if (tOverlays.watermark_text) {
+      ctx.save();
+      const op = (tOverlays.watermark_opacity !== undefined ? tOverlays.watermark_opacity : 80) / 100;
+      ctx.fillStyle = `rgba(255, 255, 255, ${op})`;
+      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+      ctx.shadowBlur = 4;
+      ctx.font = 'bold 12px Inter, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(tOverlays.watermark_text, targetW - 20, 28);
+      ctx.restore();
+    }
+
+    // OVERLAYS: Video Intro Title Card (During intro duration)
+    const introDuration = tOverlays.intro_duration || 3.5;
+    if (tOverlays.intro_enabled && currentTime <= introDuration) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+      ctx.fillRect(0, 0, targetW, 80);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 22px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(tOverlays.intro_title || project?.title || 'Balladeer Video', targetW / 2, 40);
+
+      if (tOverlays.intro_subtitle) {
+        ctx.fillStyle = '#2dd4bf';
+        ctx.font = '13px Inter, sans-serif';
+        ctx.fillText(tOverlays.intro_subtitle, targetW / 2, 62);
+      }
+      ctx.restore();
+    }
+
+    // 4. SUBTITLES & CAPTIONS (STRICT SINGLE-TYPE MUTUAL EXCLUSIVITY: Exactly ONE or none!)
+    const rawSubtitleMode = lStyle.subtitle_mode;
+    const subtitleMode = (rawSubtitleMode && rawSubtitleMode !== 'auto')
+      ? rawSubtitleMode
+      : (audioTrack?.is_instrumental ? 'narrative_descriptions' : 'karaoke_lyrics');
+
+    const highlightColor = lStyle.highlight_color || '#2dd4bf';
+    const fontFamily = lStyle.font_family || 'Inter';
+    const alignPos = lStyle.alignment || 2; // 2=bottom, 5=center, 8=top
+    const subY = alignPos === 8 ? 65 : alignPos === 5 ? targetH / 2 : targetH - 65;
+
+    if (subtitleMode === 'hidden') {
+      // Subtitles Off: No text rendered
+    } else if (subtitleMode === 'narrative_descriptions') {
+      // 1. Scene story narration ONLY
+      const descText = activeSlice.custom_caption || asset.caption || 'Descriptive story narration';
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
       ctx.strokeStyle = 'rgba(45, 212, 191, 0.4)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.roundRect(targetW * 0.1, targetH - 65, targetW * 0.8, 42, 10);
+      ctx.roundRect(targetW * 0.08, subY - 20, targetW * 0.84, 46, 10);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold 14px ${fontFamily}, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`📖 ${descText}`, targetW / 2, subY + 8);
+      ctx.restore();
+    } else if (subtitleMode === 'chapter_event_cards') {
+      // 2. Chapter act badge ONLY
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(targetW * 0.12, subY - 18, targetW * 0.76, 42, 8);
       ctx.fill();
       ctx.stroke();
 
       ctx.fillStyle = '#f8fafc';
-      ctx.font = 'bold 15px Inter, sans-serif';
+      ctx.font = `bold 14px ${fontFamily}, sans-serif`;
       ctx.textAlign = 'center';
-      const eventText = asset.caption || `Chapter #${activeSlice.clip_order + 1}`;
-      ctx.fillText(eventText, targetW / 2, targetH - 39);
-    } else if (activePhraseWords.length > 0) {
-      // Karaoke Lyrics Overlay
-      ctx.fillStyle = 'rgba(8, 12, 22, 0.88)';
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(targetW * 0.06, targetH - 72, targetW * 0.88, 52, 12);
-      ctx.fill();
-      ctx.stroke();
+      ctx.fillText(`🏷️ ACT: ${asset.caption || `Chapter #${activeSlice.clip_order + 1}`}`, targetW / 2, subY + 8);
+      ctx.restore();
+    } else if (subtitleMode === 'karaoke_lyrics') {
+      // 3. Karaoke synced lyrics ONLY
+      if (activePhraseWords.length > 0) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.beginPath();
+        ctx.roundRect(targetW * 0.08, subY - 22, targetW * 0.84, 48, 10);
+        ctx.fill();
 
-      ctx.font = 'bold 16px Inter, sans-serif';
-      ctx.textAlign = 'center';
+        ctx.font = `bold 15px ${fontFamily}, sans-serif`;
+        ctx.textAlign = 'center';
 
-      const phraseText = activePhraseWords.map((w) => w.word).join(' ');
-      if (activeWord) {
-        ctx.fillStyle = '#2dd4bf';
-        ctx.fillText(`🎶 ${activeWord.word.toUpperCase()} 🎶`, targetW / 2, targetH - 40);
-      } else {
-        ctx.fillStyle = '#f1f5f9';
-        ctx.fillText(phraseText, targetW / 2, targetH - 40);
+        const lineString = activePhraseWords.map((w) => w.word).join(' ');
+        const activeW = activeWord?.word;
+
+        if (activeW) {
+          ctx.fillStyle = highlightColor;
+          ctx.fillText(`🎶 ${activeW.toUpperCase()}`, targetW / 2, subY + 8);
+        } else {
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillText(lineString, targetW / 2, subY + 8);
+        }
+        ctx.restore();
       }
     }
 
-    // 4. Subtle Timecode HUD (Top Right of canvas)
+    // 5. Subtle Timecode HUD (Top Left of canvas)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(targetW - 130, 15, 115, 28);
+    ctx.fillRect(15, 15, 115, 26);
     ctx.fillStyle = '#2dd4bf';
-    ctx.font = 'bold 12px JetBrains Mono, monospace';
+    ctx.font = 'bold 11px JetBrains Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`${currentTime.toFixed(2)}s / ${aspect}`, targetW - 72, 34);
+    ctx.fillText(`${currentTime.toFixed(2)}s / ${aspect}`, 72, 32);
 
-  }, [currentTime, activeSlice, activeWord, activePhraseWords, aspect, audioTrack, viewMode]);
+  }, [currentTime, activeSlice, activeWord, activePhraseWords, aspect, audioTrack, viewMode, project?.config_override]);
 
   return (
     <div className="glass-panel rounded-2xl p-4 border border-slate-800 h-full flex flex-col overflow-hidden">

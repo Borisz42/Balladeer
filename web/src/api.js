@@ -246,6 +246,26 @@ export async function updateSlice(sliceId, updates) {
   return res.json();
 }
 
+export async function updateTimelineControls(projectId, controlsConfig) {
+  const res = await fetch(`${API_BASE}/timeline/${projectId}/controls`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(controlsConfig)
+  });
+  if (!res.ok) throw new Error('Failed to update timeline controls');
+  return res.json();
+}
+
+export async function bulkApplyTimelineEffects(projectId, payload) {
+  const res = await fetch(`${API_BASE}/timeline/${projectId}/bulk-apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to bulk apply timeline effects');
+  return res.json();
+}
+
 export async function splitSlice(projectId, sliceId, splitAtBeat) {
   const res = await fetch(`${API_BASE}/timeline/${projectId}/slices/${sliceId}/split`, {
     method: 'POST',

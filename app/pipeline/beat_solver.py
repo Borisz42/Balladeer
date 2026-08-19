@@ -37,16 +37,40 @@ class BeatSolver:
             return []
 
         video_cfg = self.settings.video
-        if custom_config and "video" in custom_config:
-            photo_min, photo_max = custom_config["video"].get("photo_beat_range", video_cfg.photo_beat_range)
-            vid_min, vid_max = custom_config["video"].get("video_beat_range", video_cfg.video_beat_range)
-            default_bg_mode = custom_config["video"].get("default_bg_mode", video_cfg.default_bg_mode)
-            enable_ken_burns = custom_config["video"].get("enable_ken_burns", video_cfg.enable_ken_burns)
+        cfg = custom_config or {}
+        pacing_cfg = cfg.get("pacing_rules", {})
+        video_effects_cfg = cfg.get("video_effects", {})
+        video_sub_cfg = cfg.get("video", {})
+
+        # Pacing presets
+        preset = pacing_cfg.get("pacing_preset", "balanced")
+        if preset == "fast":
+            default_photo_range = [1, 2]
+            default_vid_range = [2, 4]
+        elif preset == "cinematic":
+            default_photo_range = [3, 6]
+            default_vid_range = [4, 8]
         else:
-            photo_min, photo_max = video_cfg.photo_beat_range
-            vid_min, vid_max = video_cfg.video_beat_range
-            default_bg_mode = video_cfg.default_bg_mode
-            enable_ken_burns = video_cfg.enable_ken_burns
+            default_photo_range = video_cfg.photo_beat_range
+            default_vid_range = video_cfg.video_beat_range
+
+        photo_min, photo_max = pacing_cfg.get(
+            "photo_beat_range",
+            video_sub_cfg.get("photo_beat_range", default_photo_range)
+        )
+        vid_min, vid_max = pacing_cfg.get(
+            "video_beat_range",
+            video_sub_cfg.get("video_beat_range", default_vid_range)
+        )
+
+        default_bg_mode = video_effects_cfg.get(
+            "default_bg_mode",
+            video_sub_cfg.get("default_bg_mode", video_cfg.default_bg_mode)
+        )
+        enable_ken_burns = video_effects_cfg.get(
+            "enable_ken_burns",
+            video_sub_cfg.get("enable_ken_burns", video_cfg.enable_ken_burns)
+        )
 
         quality_threshold = self.settings.indexing.quality_threshold
         active_assets = [a for a in assets if a.is_active] or assets
@@ -150,6 +174,7 @@ class BeatSolver:
                     clip_order=clip_order,
                     bg_mode=default_bg_mode,
                     enable_ken_burns=enable_ken_burns,
+                    custom_caption=best_asset.caption or "",
                     asset=best_asset
                 )
             )

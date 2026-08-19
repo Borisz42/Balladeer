@@ -35,6 +35,8 @@ import {
   splitSlice,
   reorderSlices,
   renderVideo,
+  updateTimelineControls,
+  bulkApplyTimelineEffects,
   subscribeProjectProgress,
   shutdownServer
 } from './api';
@@ -421,6 +423,54 @@ export default function App() {
     }
   };
 
+  const handleUpdateTimelineControls = async (controlsPayload) => {
+    if (!currentProjectId) return;
+    try {
+      const res = await updateTimelineControls(currentProjectId, controlsPayload);
+      if (res && res.project) {
+        setProjectDetail((prev) => prev ? { ...prev, project: res.project } : prev);
+      }
+    } catch (err) {
+      console.error('Failed to update timeline controls:', err);
+    }
+  };
+
+  const handleBulkApplyTimelineEffects = async (bulkPayload) => {
+    if (!currentProjectId) return;
+    try {
+      await bulkApplyTimelineEffects(currentProjectId, bulkPayload);
+      await loadProjectDetail(currentProjectId);
+    } catch (err) {
+      console.error('Failed bulk apply timeline effects:', err);
+    }
+  };
+
+  const handleUpdateSliceCaption = async (sliceId, caption) => {
+    if (!currentProjectId) return;
+    try {
+      await updateSlice(sliceId, { custom_caption: caption });
+      await loadProjectDetail(currentProjectId);
+    } catch (err) {
+      console.error('Failed to update slice caption:', err);
+    }
+  };
+
+  const handleUpdateSliceAudio = async (sliceId, audioMuted, audioVolume) => {
+    if (!currentProjectId) return;
+    try {
+      await updateSlice(sliceId, { audio_muted: audioMuted, audio_volume: audioVolume });
+      setProjectDetail((prev) => {
+        if (!prev) return prev;
+        const updated = (prev.timeline_slices || []).map((s) =>
+          s.id === sliceId ? { ...s, audio_muted: audioMuted, audio_volume: audioVolume } : s
+        );
+        return { ...prev, timeline_slices: updated };
+      });
+    } catch (err) {
+      console.error('Failed to update slice audio:', err);
+    }
+  };
+
   const handleRenderVideo = async () => {
     if (!currentProjectId) return;
     setIsRendering(true);
@@ -634,6 +684,10 @@ export default function App() {
                 onReorderSlices={handleReorderSlices}
                 onSolveTimeline={handleSolveTimeline}
                 onRenderVideo={handleRenderVideo}
+                onUpdateControls={handleUpdateTimelineControls}
+                onBulkApply={handleBulkApplyTimelineEffects}
+                onUpdateSliceCaption={handleUpdateSliceCaption}
+                onUpdateSliceAudio={handleUpdateSliceAudio}
                 isSolving={isSolvingTimeline}
                 isRendering={isRendering}
               />
