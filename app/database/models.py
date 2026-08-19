@@ -78,6 +78,9 @@ class TimelineSliceModel(BaseModel):
     clip_order: int
     bg_mode: str = "blurred_fill" # "blurred_fill", "black_bars", "ken_burns_zoom"
     enable_ken_burns: bool = False
+    custom_caption: Optional[str] = None
+    audio_muted: bool = True
+    audio_volume: float = 1.0
     asset: Optional[MediaAssetModel] = None
 
 class ProjectDetailResponse(BaseModel):

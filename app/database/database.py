@@ -114,7 +114,10 @@ class Database:
                 timeline_end_sec REAL NOT NULL,
                 clip_order INTEGER NOT NULL,
                 bg_mode TEXT DEFAULT 'blurred_fill',
-                enable_ken_burns INTEGER DEFAULT 0
+                enable_ken_burns INTEGER DEFAULT 0,
+                custom_caption TEXT,
+                audio_muted INTEGER DEFAULT 1,
+                audio_volume REAL DEFAULT 1.0
             );
             """)
 
@@ -128,6 +131,9 @@ class Database:
                 "ALTER TABLE video_segments ADD COLUMN best_shot_start REAL DEFAULT 0.0;",
                 "ALTER TABLE video_segments ADD COLUMN best_shot_end REAL DEFAULT 0.0;",
                 "ALTER TABLE video_segments ADD COLUMN frame_scores TEXT;",
+                "ALTER TABLE timeline_slices ADD COLUMN custom_caption TEXT;",
+                "ALTER TABLE timeline_slices ADD COLUMN audio_muted INTEGER DEFAULT 1;",
+                "ALTER TABLE timeline_slices ADD COLUMN audio_volume REAL DEFAULT 1.0;",
             ]:
                 try:
                     conn.execute(mig)
@@ -486,8 +492,8 @@ class Database:
                 conn.execute(
                     """
                     INSERT INTO timeline_slices
-                    (id, project_id, audio_track_id, asset_id, video_segment_id, start_beat, beat_count, timeline_start_sec, timeline_end_sec, clip_order, bg_mode, enable_ken_burns)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, project_id, audio_track_id, asset_id, video_segment_id, start_beat, beat_count, timeline_start_sec, timeline_end_sec, clip_order, bg_mode, enable_ken_burns, custom_caption, audio_muted, audio_volume)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         s.id,
@@ -501,7 +507,10 @@ class Database:
                         s.timeline_end_sec,
                         s.clip_order,
                         s.bg_mode,
-                        1 if s.enable_ken_burns else 0
+                        1 if s.enable_ken_burns else 0,
+                        s.custom_caption,
+                        1 if s.audio_muted else 0,
+                        s.audio_volume
                     )
                 )
         return slices
@@ -547,6 +556,9 @@ class Database:
                         clip_order=r["clip_order"],
                         bg_mode=r["bg_mode"] or "blurred_fill",
                         enable_ken_burns=bool(r["enable_ken_burns"]),
+                        custom_caption=r["custom_caption"] if "custom_caption" in r.keys() else None,
+                        audio_muted=bool(r["audio_muted"]) if "audio_muted" in r.keys() and r["audio_muted"] is not None else True,
+                        audio_volume=r["audio_volume"] if "audio_volume" in r.keys() and r["audio_volume"] is not None else 1.0,
                         asset=asset
                     )
                 )

@@ -14,6 +14,25 @@ class UpdateSliceRequest(BaseModel):
     bg_mode: Optional[str] = None
     enable_ken_burns: Optional[bool] = None
     beat_count: Optional[int] = None
+    custom_caption: Optional[str] = None
+    audio_muted: Optional[bool] = None
+    audio_volume: Optional[float] = None
+
+class BulkApplyRequest(BaseModel):
+    action: str # "apply_bg_mode", "toggle_ken_burns", "set_custom_captions", "set_audio_mute", "set_audio_volume"
+    bg_mode: Optional[str] = None
+    enable_ken_burns: Optional[bool] = None
+    captions_map: Optional[Dict[str, str]] = None # slice_id -> caption
+    audio_muted: Optional[bool] = None
+    audio_volume: Optional[float] = None
+
+class UpdateControlsRequest(BaseModel):
+    video_effects: Optional[Dict[str, Any]] = None
+    lyrics_style: Optional[Dict[str, Any]] = None
+    text_overlays: Optional[Dict[str, Any]] = None
+    pacing_rules: Optional[Dict[str, Any]] = None
+    audio_mastering: Optional[Dict[str, Any]] = None
+    video: Optional[Dict[str, Any]] = None
 
 class SwapAssetRequest(BaseModel):
     new_asset_id: str
@@ -40,12 +59,65 @@ def update_slice(slice_id: str, req: UpdateSliceRequest):
     if req.bg_mode is not None:
         updates["bg_mode"] = req.bg_mode
     if req.enable_ken_burns is not None:
-        updates["enable_ken_burns"] = req.enable_ken_burns
+        updates["enable_ken_burns"] = 1 if req.enable_ken_burns else 0
     if req.beat_count is not None:
         updates["beat_count"] = req.beat_count
+    if req.custom_caption is not None:
+        updates["custom_caption"] = req.custom_caption
+    if req.audio_muted is not None:
+        updates["audio_muted"] = 1 if req.audio_muted else 0
+    if req.audio_volume is not None:
+        updates["audio_volume"] = req.audio_volume
 
     db.update_timeline_slice(slice_id, updates)
     return {"status": "updated", "slice_id": slice_id}
+
+@router.post("/{project_id}/bulk-apply")
+def bulk_apply_slice_effects(project_id: str, req: BulkApplyRequest):
+    slices = db.get_timeline_slices(project_id)
+    if not slices:
+        return {"status": "no_slices", "updated_count": 0}
+
+    for s in slices:
+        if req.action == "apply_bg_mode" and req.bg_mode:
+            s.bg_mode = req.bg_mode
+        elif req.action == "toggle_ken_burns" and req.enable_ken_burns is not None:
+            if not s.asset or s.asset.media_type != "video":
+                s.enable_ken_burns = req.enable_ken_burns
+        elif req.action == "set_custom_captions" and req.captions_map:
+            if s.id in req.captions_map:
+                s.custom_caption = req.captions_map[s.id]
+        elif req.action == "set_audio_mute" and req.audio_muted is not None:
+            s.audio_muted = req.audio_muted
+        elif req.action == "set_audio_volume" and req.audio_volume is not None:
+            s.audio_volume = req.audio_volume
+
+    db.save_timeline_slices(project_id, slices)
+    return {"status": "bulk_applied", "updated_count": len(slices), "slices": db.get_timeline_slices(project_id)}
+
+@router.put("/{project_id}/controls")
+def update_timeline_controls(project_id: str, req: UpdateControlsRequest):
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    cfg = proj.config_override or {}
+    if req.video_effects is not None:
+        cfg["video_effects"] = {**cfg.get("video_effects", {}), **req.video_effects}
+    if req.lyrics_style is not None:
+        cfg["lyrics_style"] = {**cfg.get("lyrics_style", {}), **req.lyrics_style}
+    if req.text_overlays is not None:
+        cfg["text_overlays"] = {**cfg.get("text_overlays", {}), **req.text_overlays}
+    if req.pacing_rules is not None:
+        cfg["pacing_rules"] = {**cfg.get("pacing_rules", {}), **req.pacing_rules}
+    if req.audio_mastering is not None:
+        cfg["audio_mastering"] = {**cfg.get("audio_mastering", {}), **req.audio_mastering}
+    if req.video is not None:
+        cfg["video"] = {**cfg.get("video", {}), **req.video}
+
+    db.update_project(project_id=project_id, config_override=cfg)
+    updated_proj = db.get_project(project_id)
+    return {"status": "controls_updated", "config_override": cfg, "project": updated_proj}
 
 @router.post("/{project_id}/slices/{slice_id}/split")
 def split_slice(project_id: str, slice_id: str, req: SplitSliceRequest):
