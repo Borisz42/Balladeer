@@ -234,13 +234,7 @@ hardware:
   max_vram_gb: 8.0
 
 indexing:
-<<<<<<< HEAD
   vlm_model: "Qwen/Qwen2.5-VL-3B-Instruct"
-=======
-  local_model: "qwen2.5-vl-3b"
-  vlm_model: "Qwen/Qwen2.5-VL-3B-Instruct"
-  vlm_display_name: "Qwen 2.5 VL (3B)"
->>>>>>> remove_qwen3_5_refactor
   quality_threshold: 6.0
   scene_detection_threshold: 0.3
   batch_size: 8
