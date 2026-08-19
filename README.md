@@ -111,7 +111,7 @@ STORY & RHYMING LYRIC WATERFALL (Text Planning & Google Flow Music Prompts)
 
 | Component | Minimum Specification | Recommended Specification |
 | :--- | :--- | :--- |
-| **GPU** | NVIDIA RTX 3070 (8 GB VRAM) | NVIDIA RTX 3080 / 4070 / 4080 (8–16 GB VRAM) |
+| **GPU VRAM** | 8 GB  | 8–16 GB |
 | **GPU Backend** | Vulkan 1.3 / CUDA 12.x / NVENC | Vulkan 1.3 / CUDA 12.x / NVENC |
 | **System RAM** | 16 GB DDR4 | 32 GB DDR4 / DDR5 |
 | **Storage** | 20 GB free space on SSD | 50 GB free space on NVMe SSD |
