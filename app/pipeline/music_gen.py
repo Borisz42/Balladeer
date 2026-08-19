@@ -158,8 +158,8 @@ class MusicGenerator:
         combined_text = narrative_text or "\n".join(["\n".join(a["lines"]) for a in acts])
 
         def local_fallback(payload: str):
-            from app.models.qwen_llm import qwen_llm
-            return qwen_llm.generate_story_and_lyrics(acts, combined_text, is_instrumental)
+            from app.models.local_vlm import local_vlm
+            return local_vlm.generate_story_and_lyrics(acts, combined_text, is_instrumental)
 
         try:
             res, model_used = await model_router.execute_task(

@@ -1,47 +1,35 @@
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
-from app.models.qwen_vlm import qwen_vlm
+from app.models.local_vlm import local_vlm
+from app.models.siglip_embedder import siglip_embedder
 from app.models.demucs_wrapper import demucs_separator
 from app.models.mms_aligner import mms_aligner
 
-class MockChatLlama:
-    def create_chat_completion(self, messages, max_tokens=256):
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": '{"caption": "A scenic portrait photo with vivid colors", "tags": ["portrait", "scenic"], "quality_score": 8.0}'
-                    }
-                }
-            ]
-        }
-
-def test_qwen_vlm_heuristic(monkeypatch):
-    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
-    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic portrait photo with vivid colors", "tags": ["portrait", "scenic"], "quality_score": 8.0}')
-    res = qwen_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
+def test_local_vlm_heuristic(monkeypatch):
+    monkeypatch.setattr(local_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(local_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic portrait photo with vivid colors", "tags": ["portrait", "scenic"], "quality_score": 8.0}')
+    res = local_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
     assert "caption" in res
     assert "tags" in res
     assert 1.0 <= res["quality_score"] <= 10.0
     assert "embedding" not in res  # Embedding must only be computed once in the indexer
 
-def test_qwen_vlm_markdown_fenced_json(monkeypatch):
-    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
-    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: '```json\n{\n  "caption": "A couple poses together in a sunny art gallery with paintings.",\n  "tags": ["couple", "gallery", "art"],\n  "quality_score": 8.7\n}\n```')
-    res = qwen_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
+def test_local_vlm_markdown_fenced_json(monkeypatch):
+    monkeypatch.setattr(local_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(local_vlm, "_generate_vlm_output", lambda m, p, img, txt: '```json\n{\n  "caption": "A couple poses together in a sunny art gallery with paintings.",\n  "tags": ["couple", "gallery", "art"],\n  "quality_score": 8.7\n}\n```')
+    res = local_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
     assert res["caption"] == "A couple poses together in a sunny art gallery with paintings."
     assert "gallery" in res["tags"]
     assert res["quality_score"] == 8.7
 
-def test_qwen_vlm_malformed_fence_fallback(monkeypatch):
-    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
-    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: "```json\n")
-    res = qwen_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
+def test_local_vlm_malformed_fence_fallback(monkeypatch):
+    monkeypatch.setattr(local_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(local_vlm, "_generate_vlm_output", lambda m, p, img, txt: "```json\n")
+    res = local_vlm.describe_and_score(Path("sample_media/portrait_day1.jpg"), "portrait_day1.jpg")
     assert res["caption"].startswith("Travel scene:")
     assert not res["caption"].startswith("```")
     assert len(res["caption"]) > 8
-
 
 def test_mms_aligner():
     beat_grid = [0.0, 0.5, 1.0, 1.5, 2.0]
@@ -53,3 +41,12 @@ def test_mms_aligner():
     assert len(words) >= 4
     for w in words:
         assert w.snapped_start in beat_grid or w.snapped_start >= 0.0
+
+def test_siglip_prewarm_and_clear_cache(monkeypatch):
+    import asyncio
+    called = []
+    monkeypatch.setattr(siglip_embedder, "_get_processor_and_model", lambda: called.append(True) or (MagicMock(), MagicMock()))
+    asyncio.run(siglip_embedder.prewarm_async())
+    assert len(called) == 1
+    siglip_embedder.clear_cache()
+    assert siglip_embedder._model is None

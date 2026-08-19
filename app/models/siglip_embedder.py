@@ -28,6 +28,26 @@ class SigLIPEmbedder:
         self._cached_pos_emb = None
         self._cached_neg_emb = None
 
+    def clear_cache(self):
+        """Releases SigLIP 2 model weights from memory / GPU VRAM."""
+        self._processor = None
+        self._model = None
+        self._device = None
+        self._cached_pos_emb = None
+        self._cached_neg_emb = None
+        memory_manager.remove_loaded("siglip")
+        memory_manager.set_loading(None)
+
+    async def preload_background(self):
+        """Asynchronously pre-loads SigLIP 2 model into GPU VRAM in the background at startup."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._get_processor_and_model)
+
+    async def prewarm_async(self):
+        """Alias for preload_background."""
+        await self.preload_background()
+
     def _get_processor_and_model(self):
         if self._model is None or self._processor is None:
             try:
@@ -64,7 +84,7 @@ class SigLIPEmbedder:
                             model_source = str(snapshot_subs[0])
                             break
 
-                memory_manager.set_loading("SigLIP 2")
+                memory_manager.set_loading("SigLIP 2", key="siglip")
 
                 # 1. Attempt offline load first
                 try:
@@ -93,7 +113,7 @@ class SigLIPEmbedder:
 
             except Exception as e:
                 logger.warning(f"SigLIP 2 model load note: {e}")
-                memory_manager.set_loading(None)
+                memory_manager.set_loading(None, key="siglip")
                 self._processor = None
                 self._model = None
                 self._device = None

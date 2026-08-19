@@ -10,17 +10,18 @@ from app.database.models import ProjectModel, MediaAssetModel
 from app.pipeline.indexer import media_indexer as indexer
 from app.pipeline.rephraser import diary_rephraser
 from app.api.projects import draft_travel_log, approve_travel_log, ApproveTravelLogRequest
-from app.models.qwen_vlm import qwen_vlm
+from app.models.local_vlm import local_vlm
 
 from app.models.siglip_embedder import siglip_embedder
 
 @pytest.fixture(autouse=True)
-def mock_qwen_llm(monkeypatch):
+def mock_local_vlm(monkeypatch):
     from app.core.config import get_settings
-    monkeypatch.setattr(get_settings().google_ai, "only_local_ai", True)
-    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
-    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic landscape during golden hour", "tags": ["landscape", "scenic"], "quality_score": 8.5}')
-    monkeypatch.setattr(qwen_vlm, "_loaded_model_name", "local-qwen3.5-4b")
+    settings = get_settings()
+    monkeypatch.setattr(settings.google_ai, "only_local_ai", True)
+    monkeypatch.setattr(local_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(local_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic landscape during golden hour", "tags": ["landscape", "scenic"], "quality_score": 8.5}')
+    monkeypatch.setattr(local_vlm, "_loaded_model_name", settings.indexing.local_model)
     
     # Fast mock for SigLIP 2 embeddings
     dummy_vec = [0.05] * 768

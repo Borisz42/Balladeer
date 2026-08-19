@@ -87,7 +87,7 @@ class IntelligentModelRouter:
     """
     Intelligent Multi-Tier Model Dispatcher.
     Dynamically routes tasks across Google AI Studio free tier quotas (Flash Lite, Gemma)
-    and falls back smoothly to local quantized Qwen3.5-4B on the RTX 3070.
+    and falls back smoothly to the configured local vision-language model runner on GPU/CPU.
     """
 
     def __init__(self):
@@ -105,10 +105,8 @@ class IntelligentModelRouter:
             "gemini-3.5-flash":      ModelQuota("gemini-3.5-flash",      rpm_limit=5,  tpm_limit=250_000, rpd_limit=20),
             "gemma-4-31b":           ModelQuota("gemma-4-31b",           rpm_limit=30, tpm_limit=16_000,  rpd_limit=14_400),
             "gemma-4-26b":           ModelQuota("gemma-4-26b",           rpm_limit=30, tpm_limit=16_000,  rpd_limit=14_400),
-            "local-qwen2.5-vl-3b":   ModelQuota("local-qwen2.5-vl-3b",   rpm_limit=999, tpm_limit=999_999, rpd_limit=999_999, is_local=True),
-            "local-qwen3.5-4b":      ModelQuota("local-qwen3.5-4b",      rpm_limit=999, tpm_limit=999_999, rpd_limit=999_999, is_local=True),
-            "local-qwen3.5-9b":      ModelQuota("local-qwen3.5-9b",      rpm_limit=999, tpm_limit=999_999, rpd_limit=999_999, is_local=True),
         }
+        self._ensure_local_quota()
 
         self.waterfalls = {
             TaskType.VISION_BATCH: [
@@ -118,7 +116,6 @@ class IntelligentModelRouter:
                 "gemini-3.5-flash",
                 "gemini-3.7-flash",
                 "gemma-4-31b",
-                "local-qwen2.5-vl-3b",
             ],
             TaskType.STORY_LYRICS: [
                 "gemini-3.5-flash-lite",
@@ -127,10 +124,22 @@ class IntelligentModelRouter:
                 "gemini-3.7-flash",
                 "gemma-4-31b",
                 "gemma-4-26b",
-                "local-qwen3.5-9b",
             ],
         }
 
+    def _ensure_local_quota(self) -> str:
+        """Dynamically registers the configured local model slug in the quota registry."""
+        settings = get_settings()
+        local_slug = settings.indexing.local_slug
+        if local_slug not in self.models:
+            self.models[local_slug] = ModelQuota(
+                local_slug,
+                rpm_limit=999,
+                tpm_limit=999_999,
+                rpd_limit=999_999,
+                is_local=True
+            )
+        return local_slug
 
     async def _execute_local(self, task_type: TaskType, payload: Any, custom_fallback: Optional[Callable] = None) -> Any:
         func = custom_fallback
@@ -141,8 +150,6 @@ class IntelligentModelRouter:
                 func = self.local_story_fallback
 
         if func:
-            model_display_name = "Qwen 2.5 VL (3B)" if task_type == TaskType.VISION_BATCH else "Qwen 3.5 (9B)"
-            memory_manager.set_loading(model_display_name)
             try:
                 if asyncio.iscoroutinefunction(func):
                     res = await func(payload)
@@ -150,8 +157,9 @@ class IntelligentModelRouter:
                     # Offload heavy synchronous GPU / CPU execution to worker thread
                     res = await asyncio.to_thread(func, payload)
                 return res
-            finally:
-                memory_manager.set_loading(None)
+            except Exception as e:
+                logger.warning(f"[Router] Local execution note: {e}")
+                raise
 
         raise RuntimeError(f"No local fallback registered for task {task_type}")
 
@@ -170,19 +178,14 @@ class IntelligentModelRouter:
         settings = get_settings()
         api_key = settings.google_ai.api_key.strip()
         only_local = settings.google_ai.only_local_ai or not api_key
-
-        if task_type == TaskType.VISION_BATCH:
-            active_local_slug = "local-qwen2.5-vl-3b"
-        else:
-            from app.models.qwen_llm import qwen_llm
-            active_local_slug = "local-qwen3.5-9b" if qwen_llm._find_gguf_file() else "local-qwen2.5-vl-3b"
+        active_local_slug = self._ensure_local_quota()
 
         if only_local or cloud_caller is None:
             logger.info(f"[Router] [{task_type.value}] Only-Local mode active (only_local_ai={only_local}). Routing directly to {active_local_slug} engine.")
             res = await self._execute_local(task_type, prompt_payload, local_fallback)
             return res, active_local_slug
 
-        candidate_chain = self.waterfalls.get(task_type, [active_local_slug])
+        candidate_chain = list(self.waterfalls.get(task_type, [])) + [active_local_slug]
 
         for model_name in candidate_chain:
             if model_name.startswith("local-"):
@@ -210,8 +213,8 @@ class IntelligentModelRouter:
         res = await self._execute_local(task_type, prompt_payload, local_fallback)
         return res, active_local_slug
 
-
     def get_all_quotas_status(self) -> Dict[str, Any]:
+        self._ensure_local_quota()
         return {name: quota.get_status() for name, quota in self.models.items()}
 
 # Global router singleton

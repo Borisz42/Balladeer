@@ -522,7 +522,7 @@ export default function AssetDetailModal({ isOpen, onClose, project, asset, onAs
                     AI Vision Model Used
                   </span>
                   <strong className="text-xs font-bold text-white uppercase font-mono">
-                    {asset.indexed_by_model || (asset.is_indexed ? 'SigLIP 2 + Qwen3.5-4B' : 'Not Yet Indexed')}
+                    {asset.indexed_by_model || (asset.is_indexed ? 'SigLIP 2 + Local AI' : 'Not Yet Indexed')}
                   </strong>
                 </div>
               </div>

@@ -58,8 +58,8 @@ def update_system_settings(req: UpdateSettingsRequest) -> Dict[str, Any]:
         save_dotenv_var("BALLADEER_LOCAL_MODEL", req.local_model.strip())
         logger.info(f"[SYSTEM] Updated BALLADEER_LOCAL_MODEL={req.local_model} in .env")
         try:
-            from app.models.qwen_vlm import qwen_vlm
-            qwen_vlm.reload_model()
+            from app.models.local_vlm import local_vlm
+            local_vlm.reload_model()
         except Exception:
             pass
 

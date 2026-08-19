@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union, Tuple
+
 import torch
 from PIL import Image, ImageOps, ImageStat
 from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
@@ -13,17 +14,20 @@ from qwen_vl_utils import process_vision_info
 from app.core.config import get_settings
 from app.core.memory_manager import memory_manager
 
-logger = logging.getLogger("balladeer.qwen_vlm")
+logger = logging.getLogger("balladeer.local_vlm")
 
-class QwenVLMRunner:
+
+class LocalVLMRunner:
     """
-    High-Throughput Vision-Language Model Runner for Qwen 2.5 VL (3B) using Hugging Face Transformers.
+    High-Throughput, Config-Driven Local Vision-Language & Text Generation Engine.
     
-    1. Dedicated Engine: Dedicated to rapid media captioning and visual indexing.
-    2. Sub-Second Throughput: Downscales to 256x256 bounding box, 48 max generated tokens.
-    3. No JSON / Aesthetic Overhead: Plain 1-sentence evocative descriptions; aesthetic scoring offloaded to SigLIP 2.
-    4. Full GPU Offload & Batching: Batched PyTorch generation with NF4 4-bit quantization on CUDA.
-    5. Shared Cache: Looks under ~/.cache/huggingface/hub/ for persistence across worktrees.
+    1. Single Unified Model: Uses a single loaded model in GPU VRAM for both visual indexing
+       (media descriptions, tag extraction, quality estimation) and text synthesis
+       (travel log drafting, lyric generation, Google Flow Music prompt optimization).
+    2. Config-Driven: Model repository ID, quantization mode, and display metadata are resolved
+       dynamically from application settings (IndexingSettings).
+    3. Optimized GPU Offload: Batched PyTorch generation with NF4 4-bit quantization on CUDA.
+    4. Fast Text Generation: In-memory KV-cached autoregressive text generation with low temperature.
     """
 
     def __init__(self):
@@ -31,42 +35,69 @@ class QwenVLMRunner:
         self._processor = None
         self._loaded_model_name: Optional[str] = None
 
-    def reload_model(self):
-        """Unloads current model from memory to allow switching."""
+    @property
+    def is_loaded(self) -> bool:
+        """Returns True if the active model and processor are already resident in memory."""
+        settings = get_settings()
+        return (
+            self._model is not None
+            and self._processor is not None
+            and self._loaded_model_name == settings.indexing.local_model
+        )
+
+    def clear_cache(self):
+        """Releases model from memory / GPU VRAM."""
         self._model = None
         self._processor = None
         self._loaded_model_name = None
         memory_manager.remove_loaded("vlm")
+        memory_manager.remove_loaded("qwen")
+        memory_manager.set_loading(None, key="vlm")
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        logger.info("[Local-AI] Model runner cache cleared for reload.")
+        logger.info("[Local-AI] Model runner cache cleared.")
+
+    def reload_model(self):
+        """Unloads current model from memory to allow reconfiguration or model switching."""
+        self.clear_cache()
+        logger.info("[Local-AI] Model runner cleared for reload.")
 
     async def preload_background(self):
-        """Asynchronously pre-loads Qwen 2.5 into GPU VRAM in the background at startup."""
+        """Asynchronously pre-loads model into GPU VRAM in the background at startup."""
         import asyncio
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._get_model_and_processor)
 
-    def _get_model_and_processor(self):
-        """Loads or reloads the active local Qwen 2.5 VL on CUDA GPU."""
-        settings = get_settings()
-        target_model = "qwen2.5-vl-3b"
+    async def prewarm_async(self):
+        """Alias for preload_background."""
+        await self.preload_background()
 
-        if self._model is not None and self._processor is not None and self._loaded_model_name == target_model:
+    def _get_model_and_processor(self):
+        """Loads or reloads the active local VLM/LLM on CUDA GPU or CPU."""
+        settings = get_settings()
+        target_model = settings.indexing.local_model
+        canonical_repo = settings.indexing.vlm_model
+        display_name = settings.indexing.vlm_display_name
+
+        if (
+            self._model is not None
+            and self._processor is not None
+            and self._loaded_model_name == target_model
+        ):
             return self._model, self._processor
 
         self._model = None
         self._processor = None
-        
-        # Resolve model source (local folder, snapshot, or canonical HF hub ID)
-        canonical_repo = "Qwen/Qwen2.5-VL-3B-Instruct"
+
         hf_hub_dir = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface" / "hub"))
         weights_root = settings.data_dir / "weights"
+        repo_slug = "models--" + canonical_repo.replace("/", "--")
 
         candidate_paths = [
-            hf_hub_dir / "qwen2.5-vl-3b",
-            hf_hub_dir / "models--Qwen--Qwen2.5-VL-3B-Instruct",
+            hf_hub_dir / target_model,
+            hf_hub_dir / repo_slug,
             weights_root / target_model,
+            weights_root / canonical_repo.split("/")[-1],
         ]
 
         model_source = canonical_repo
@@ -86,9 +117,9 @@ class QwenVLMRunner:
         is_cuda = torch.cuda.is_available() and ("cuda" in settings.hardware.device or memory_manager.is_cuda)
 
         try:
-            memory_manager.set_loading("Qwen 2.5 VL (3B)")
-            logger.info(f"[Local-AI] Initializing Transformers VLM engine for '{target_model}' (Source: {model_source})...")
-            
+            memory_manager.set_loading(display_name, key="vlm")
+            logger.info(f"[Local-AI] Initializing Local VLM engine for '{target_model}' (Source: {model_source})...")
+
             try:
                 self._processor = AutoProcessor.from_pretrained(model_source, trust_remote_code=True)
             except Exception as proc_err:
@@ -111,7 +142,7 @@ class QwenVLMRunner:
                     trust_remote_code=True
                 )
                 self._loaded_model_name = target_model
-                memory_manager.set_loaded("qwen", "Qwen 2.5 VL (3B)")
+                memory_manager.set_loaded("vlm", display_name)
                 logger.info(f"[GPU] ✓ Successfully loaded active model: {target_model.upper()} ({model_source}) on CUDA GPU")
             else:
                 self._model = AutoModelForImageTextToText.from_pretrained(
@@ -120,20 +151,24 @@ class QwenVLMRunner:
                     device_map="cpu"
                 )
                 self._loaded_model_name = target_model
-                memory_manager.set_loaded("qwen", "Qwen 2.5 VL (3B) [CPU]")
+                memory_manager.set_loaded("vlm", f"{display_name} [CPU]")
                 logger.warning(f"[CPU] ⚠️ Loaded active model: {target_model.upper()} on CPU (CUDA unavailable)")
 
         except Exception as e:
             logger.warning(f"[Local-AI] Failed to load {target_model} via Transformers: {e}")
-            memory_manager.set_loading(None)
+            memory_manager.set_loading(None, key="vlm")
             self._model = None
             self._processor = None
             self._loaded_model_name = None
 
         return self._model, self._processor
 
+    # -------------------------------------------------------------------------
+    # Multimodal Vision Indexing Methods
+    # -------------------------------------------------------------------------
+
     def _prepare_image(self, target_image_path: Path, preloaded_image: Optional[Image.Image] = None) -> Optional[Image.Image]:
-        """Preprocesses and downscales image to 256x256 RGB for ultra-fast vision throughput."""
+        """Preprocesses and downscales image to 256x256 RGB for high vision throughput."""
         try:
             if preloaded_image is not None:
                 img_copy = preloaded_image.copy()
@@ -353,7 +388,6 @@ class QwenVLMRunner:
                 )
             ]
 
-            # Verify each item: if any item in the batch produced an empty or too-short string, re-run individually
             final_outputs = []
             for i, text in enumerate(decoded):
                 if not text or len(text) < 5 or text.startswith("{") and not '"caption"' in text:
@@ -384,23 +418,7 @@ class QwenVLMRunner:
         if filename is None:
             filename = p.name
 
-        # If a video path is passed, extract a representative frame for visual analysis
-        video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
-        target_image_path = p
-        if p.suffix.lower() in video_exts and p.exists() and preloaded_image is None:
-            import tempfile, subprocess
-            temp_thumb = Path(tempfile.gettempdir()) / f"vlm_frame_{p.stem}_{int(p.stat().st_mtime)}.jpg"
-            try:
-                cmd = ["ffmpeg", "-y", "-ss", "0.5", "-i", str(p), "-vframes", "1", "-vf", "scale='min(600,iw)':-1", "-q:v", "2", str(temp_thumb)]
-                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
-                if not temp_thumb.exists() or temp_thumb.stat().st_size == 0:
-                    cmd_zero = ["ffmpeg", "-y", "-ss", "0", "-i", str(p), "-vframes", "1", "-vf", "scale='min(600,iw)':-1", "-q:v", "2", str(temp_thumb)]
-                    subprocess.run(cmd_zero, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
-
-                if temp_thumb.exists() and temp_thumb.stat().st_size > 0:
-                    target_image_path = temp_thumb
-            except Exception as e:
-                logger.debug(f"Frame extraction note for VLM: {e}")
+        target_image_path = self._extract_video_thumb(p) if preloaded_image is None else p
 
         # Compute dynamic image stats for photographic scoring
         quality = 7.0
@@ -442,8 +460,6 @@ class QwenVLMRunner:
                     h_score += 0.5
 
                 quality = round(max(1.0, min(10.0, h_score)), 1)
-
-                # High-quality 512x512 bounding resolution for full GPU vision throughput
                 img_rgb = img.convert("RGB")
                 img_rgb.thumbnail((512, 512), Image.Resampling.LANCZOS)
         except Exception as e:
@@ -478,7 +494,6 @@ class QwenVLMRunner:
     def describe_and_score_batch(self, items: List[Any]) -> List[Dict[str, Any]]:
         """
         Batched multimodal vision indexing for maximum GPU throughput.
-        Processes up to 8 images per batch on RTX 3070 with 256x256 downscaling.
         """
         if not items:
             return []
@@ -547,4 +562,99 @@ class QwenVLMRunner:
 
         return results
 
-qwen_vlm = QwenVLMRunner()
+    # -------------------------------------------------------------------------
+    # Text Generation & Synthesis Methods
+    # -------------------------------------------------------------------------
+
+    def generate_text(self, prompt: str, system_prompt: Optional[str] = None, max_tokens: int = 280) -> str:
+        """Generates fast, high-quality text using cached KV states and greedy / low-temperature decoding."""
+        model, processor = self._get_model_and_processor()
+        if model is None or processor is None:
+            return ""
+
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
+            messages.append({"role": "user", "content": [{"type": "text", "text": prompt}]})
+
+            text_prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            inputs = processor(text=[text_prompt], padding=True, return_tensors="pt")
+
+            model_device = getattr(model, "device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            model_inputs = {k: v.to(model_device) for k, v in inputs.items() if hasattr(v, "to")}
+            prompt_len = model_inputs["input_ids"].shape[1] if "input_ids" in model_inputs else 0
+
+            tokenizer_inner = getattr(processor, "tokenizer", processor)
+            eos_id = getattr(tokenizer_inner, "eos_token_id", None) or getattr(processor, "eos_token_id", None)
+
+            with torch.inference_mode():
+                generated = model.generate(
+                    **model_inputs,
+                    max_new_tokens=max_tokens,
+                    do_sample=False,
+                    use_cache=True,
+                    pad_token_id=eos_id,
+                    eos_token_id=eos_id
+                )
+            new_ids = generated[0][prompt_len:]
+            return processor.decode(new_ids, skip_special_tokens=True).strip()
+        except Exception as e:
+            logger.warning(f"[Local-AI] Text generation notice: {e}")
+            return ""
+
+    def draft_travel_log(self, media_items: List[Dict[str, Any]], project_title: Optional[str] = None) -> Dict[str, Any]:
+        """Synthesizes structured travel days and narrative text from media items."""
+        title = project_title or "Travel Montage"
+        from app.pipeline.rephraser import diary_rephraser
+        return diary_rephraser.draft_travel_log_from_media(media_items, title)
+
+    def generate_story_and_lyrics(
+        self,
+        acts: List[Dict[str, Any]],
+        narrative_text: str = "",
+        is_instrumental: bool = False
+    ) -> Tuple[str, str]:
+        """Generates rhyming song lyrics and a Google Flow Music style prompt in 1-3 seconds."""
+        from app.pipeline.music_gen import MusicGenerator
+        mg = MusicGenerator()
+        heuristic_lyrics, heuristic_prompt = mg._generate_heuristic_lyrics(acts, is_instrumental)
+
+        if is_instrumental:
+            system_prompt = (
+                "You are an expert music producer. Create a concise 1-2 sentence Google Flow Music prompt "
+                "specifying genre, instruments, mood, and BPM."
+            )
+            prompt = f"Montage: {narrative_text[:200]}"
+            out_prompt = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=100)
+            final_prompt = out_prompt if len(out_prompt) > 20 else heuristic_prompt
+            return heuristic_lyrics, final_prompt
+
+        system_prompt = (
+            "You are a songwriter. Write brief rhyming lyrics with [Verse 1], [Chorus], [Verse 2], [Outro]. "
+            "End with [Music Prompt] for genre and instruments. Be concise."
+        )
+        prompt = f"Story: {narrative_text[:300]}\nOutput song lyrics:"
+
+        out = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=280)
+        if out and "[verse" in out.lower():
+            if "[music prompt]" in out.lower():
+                parts = re.split(r"\[music prompt\]", out, flags=re.IGNORECASE)
+                lyrics = parts[0].strip()
+                music_p = parts[1].strip() if len(parts) > 1 else heuristic_prompt
+                return lyrics, music_p
+            return out.strip(), heuristic_prompt
+
+        return heuristic_lyrics, heuristic_prompt
+
+
+local_vlm = LocalVLMRunner()
+
+# Backward-compatibility aliases
+LocalModelRunner = LocalVLMRunner
+QwenRunner = LocalVLMRunner
+QwenVLMRunner = LocalVLMRunner
+QwenLLMRunner = LocalVLMRunner
+qwen_runner = local_vlm
+qwen_vlm = local_vlm
+qwen_llm = local_vlm

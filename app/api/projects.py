@@ -190,19 +190,19 @@ async def draft_travel_log(project_id: str):
 
     draft = None
     try:
-        from app.models.qwen_llm import qwen_llm
+        from app.models.local_vlm import local_vlm
         est_tokens = max(1200, len(media_items) * 35)
         draft, model_used = await model_router.execute_task(
             task_type=TaskType.STORY_LYRICS,
             prompt_payload=proj.title or "Travel Montage",
             estimated_tokens=est_tokens,
             cloud_caller=lambda m, p: gemini_client.draft_travel_log(m, media_items, proj.title),
-            local_fallback=lambda p: qwen_llm.draft_travel_log(media_items, proj.title)
+            local_fallback=lambda p: local_vlm.draft_travel_log(media_items, proj.title)
         )
     except Exception as e:
         logger.warning(f"AI travel log draft fallback: {e}")
-        from app.models.qwen_llm import qwen_llm
-        draft = qwen_llm.draft_travel_log(media_items, proj.title)
+        from app.models.local_vlm import local_vlm
+        draft = local_vlm.draft_travel_log(media_items, proj.title)
 
     existing_cfg = proj.config_override or {}
     updated_cfg = {

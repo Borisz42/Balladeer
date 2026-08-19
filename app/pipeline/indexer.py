@@ -16,7 +16,7 @@ except ImportError:
 from app.core.config import get_settings
 from app.database.database import db
 from app.database.models import MediaAssetModel, VideoSegmentModel
-from app.models.qwen_vlm import qwen_vlm
+from app.models.local_vlm import local_vlm
 from app.models.siglip_embedder import siglip_embedder
 from app.models.gemini_client import gemini_client
 from app.models.model_router import model_router, TaskType
@@ -35,7 +35,7 @@ class MediaIndexer:
     - Visual similarity segmentation & 1D rolling convolution -> Best n-sec shot selection.
     
     Stage 2: 1-Sentence Semantic Captioning
-    - Qwen 3.5 (4B/9B Q4_K_M GGUF via llama-cpp with strict CoT bypass).
+    - High-throughput local VLM captioning & tag extraction.
     - Capped at 512x512 pixels for winning representative frame.
     """
 
@@ -831,7 +831,7 @@ class MediaIndexer:
     ) -> List[MediaAssetModel]:
         """
         Step 2: Executes AI indexing on non-indexed or selected assets (both photos and videos)
-        using SigLIP 2 scoring + Qwen 3.5 1-sentence captioning.
+        using SigLIP 2 scoring + local VLM 1-sentence captioning.
         """
         all_assets = db.get_project_assets(project_id)
         if asset_ids:
@@ -909,7 +909,7 @@ class MediaIndexer:
                 prompt_payload=prompt_payload,
                 estimated_tokens=est_tokens,
                 cloud_caller=gemini_client.analyze_image_batch,
-                local_fallback=qwen_vlm.describe_and_score_batch
+                local_fallback=local_vlm.describe_and_score_batch
             )
 
             t1 = time.perf_counter()
@@ -1032,7 +1032,7 @@ class MediaIndexer:
             prompt_payload=prompt_payload,
             estimated_tokens=200,
             cloud_caller=gemini_client.analyze_image_batch,
-            local_fallback=qwen_vlm.describe_and_score_batch
+            local_fallback=local_vlm.describe_and_score_batch
         )
         analysis = vlm_results[0] if vlm_results else {
             "caption": f"Scene: {p.stem}",
@@ -1069,7 +1069,7 @@ class MediaIndexer:
             "relevance_score_overall": rel_overall,
             "embedding": emb,
             "is_indexed": True,
-            "indexed_by_model": model_used
+            "indexed_by_model": self.settings.indexing.local_slug
         })
 
     def index_media_file(self, project_id: str, file_path: Path) -> MediaAssetModel:
@@ -1077,7 +1077,7 @@ class MediaIndexer:
         staged = self.stage_media_files(project_id, [file_path])
         asset = staged[0]
         meta = self.extract_image_metadata(file_path) if asset.media_type == "image" else self.extract_video_metadata(file_path)
-        vlm_res = qwen_vlm.describe_and_score(file_path, metadata=meta)
+        vlm_res = local_vlm.describe_and_score(file_path, metadata=meta)
         emb = self.generate_siglip_embedding(vlm_res["caption"])
 
         siglip_score = siglip_embedder.compute_aesthetic_score(file_path)
@@ -1106,7 +1106,7 @@ class MediaIndexer:
             "relevance_score_overall": rel_overall,
             "embedding": emb,
             "is_indexed": True,
-            "indexed_by_model": "local-qwen2.5-vl-3b"
+            "indexed_by_model": self.settings.indexing.local_slug
         })
 
     def compute_project_relevance_scores(self, project_id: str) -> Dict[str, Any]:
