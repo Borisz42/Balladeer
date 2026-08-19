@@ -16,6 +16,7 @@ from app.database.models import (
     VideoSegmentModel,
     AudioTrackModel,
     TimelineSliceModel,
+    AlignedWordModel,
     ProjectDetailResponse
 )
 from app.pipeline.indexer import media_indexer as indexer
@@ -71,6 +72,15 @@ class UpdateAssetRequest(BaseModel):
     tags: Optional[List[str]] = None
     quality_score: Optional[float] = None
     is_active: Optional[bool] = None
+
+class UpdateLyricsRequest(BaseModel):
+    lyrics: Optional[str] = None
+    aligned_lyrics: Optional[List[AlignedWordModel]] = None
+    auto_snap: Optional[bool] = True
+    enable_word_highlight: Optional[bool] = None
+
+class RealignLyricsRequest(BaseModel):
+    lyrics: Optional[str] = None
 
 @router.get("", response_model=List[ProjectModel])
 @router.get("/", response_model=List[ProjectModel], include_in_schema=False)
@@ -702,6 +712,79 @@ def stream_audio_stem(project_id: str, stem_type: str):
         raise HTTPException(status_code=404, detail=f"Audio stem '{stem_type}' not found on disk")
 
     return FileResponse(target, media_type="audio/wav")
+
+@router.put("/{project_id}/lyrics", response_model=AudioTrackModel)
+def update_project_lyrics(project_id: str, req: UpdateLyricsRequest):
+    """
+    Updates audio track lyrics and/or word-level aligned timestamps.
+    Supports in-browser fine-tuning, fixing misheard lyrics, and nudging word timestamps.
+    """
+    track = db.get_audio_track(project_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Audio track not found")
+
+    new_lyrics = req.lyrics if req.lyrics is not None else track.lyrics
+    new_aligned = track.aligned_lyrics
+
+    if req.aligned_lyrics is not None:
+        if req.auto_snap:
+            new_aligned = aligner.snap_words(req.aligned_lyrics, track.beat_grid)
+        else:
+            new_aligned = req.aligned_lyrics
+
+    # If enable_word_highlight flag is provided, persist it in project config_override
+    if req.enable_word_highlight is not None:
+        proj = db.get_project(project_id)
+        if proj:
+            cfg = proj.config_override or {}
+            lyr_style = cfg.get("lyrics_style", {})
+            lyr_style["enable_word_highlight"] = req.enable_word_highlight
+            cfg["lyrics_style"] = lyr_style
+            db.update_project(project_id, config_override=cfg)
+
+    updated_track = db.update_audio_track_lyrics(
+        project_id=project_id,
+        lyrics=new_lyrics,
+        aligned_lyrics=new_aligned
+    )
+    if not updated_track:
+        raise HTTPException(status_code=500, detail="Failed to update audio track lyrics")
+
+    return updated_track
+
+@router.post("/{project_id}/realign-lyrics", response_model=AudioTrackModel)
+async def realign_project_lyrics(project_id: str, req: Optional[RealignLyricsRequest] = None):
+    """
+    Re-runs TorchAudio MMS_FA CTC forced alignment on updated lyrics against project vocal stem and beat grid.
+    """
+    track = db.get_audio_track(project_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Audio track not found")
+
+    lyrics_text = (req.lyrics if req and req.lyrics is not None else track.lyrics) or ""
+    if not lyrics_text.strip():
+        raise HTTPException(status_code=400, detail="Lyrics text cannot be empty for alignment")
+
+    vocal_target = track.vocal_stem_path if track.vocal_stem_path and Path(track.vocal_stem_path).exists() else track.master_path
+    if not vocal_target or not Path(vocal_target).exists():
+        raise HTTPException(status_code=400, detail="Audio stem file not found on disk")
+
+    try:
+        aligned_words = aligner.align_lyrics_mms_fa(
+            vocal_path=Path(vocal_target),
+            lyrics_text=lyrics_text,
+            beat_grid=track.beat_grid
+        )
+
+        updated_track = db.update_audio_track_lyrics(
+            project_id=project_id,
+            lyrics=lyrics_text,
+            aligned_lyrics=aligned_words
+        )
+        return updated_track
+    except Exception as e:
+        logger.exception("Lyric re-alignment failed")
+        raise HTTPException(status_code=500, detail=f"Alignment failed: {str(e)}")
 
 @router.post("/{project_id}/solve-timeline")
 async def solve_timeline(project_id: str):

@@ -28,10 +28,46 @@ export default function LiveCanvasPreview({
     (w) => currentTime >= w.snapped_start && currentTime <= w.snapped_end
   ) || [];
 
-  // Active phrase
-  const activePhraseWords = audioTrack?.aligned_lyrics?.filter(
-    (w) => Math.abs(w.snapped_start - currentTime) <= 2.0
-  ) || [];
+  // Group aligned lyrics into lines
+  const lyricLines = useMemo(() => {
+    if (!audioTrack?.aligned_lyrics?.length) return [];
+    const grouped = [];
+    let currentLineIdx = null;
+    let currentChunk = [];
+
+    audioTrack.aligned_lyrics.forEach((w, idx) => {
+      const lIdx = w.line_index !== undefined && w.line_index !== null ? w.line_index : Math.floor(idx / 5);
+      if (currentLineIdx === null || lIdx === currentLineIdx) {
+        currentChunk.push(w);
+        currentLineIdx = lIdx;
+      } else {
+        if (currentChunk.length > 0) {
+          grouped.push({
+            words: currentChunk,
+            start: currentChunk[0].snapped_start,
+            end: currentChunk[currentChunk.length - 1].snapped_end + 0.3
+          });
+        }
+        currentChunk = [w];
+        currentLineIdx = lIdx;
+      }
+    });
+
+    if (currentChunk.length > 0) {
+      grouped.push({
+        words: currentChunk,
+        start: currentChunk[0].snapped_start,
+        end: currentChunk[currentChunk.length - 1].snapped_end + 0.3
+      });
+    }
+
+    return grouped;
+  }, [audioTrack?.aligned_lyrics]);
+
+  // Find active line at currentTime
+  const activeLine = lyricLines.find(
+    (l) => currentTime >= l.start && currentTime <= l.end
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -203,7 +239,7 @@ export default function LiveCanvasPreview({
       ctx.restore();
     }
 
-    // Subtitle & Caption Rendering (STRICT MUTUAL EXCLUSIVITY: Exactly ONE subtitle type or none)
+    // Subtitle & Caption Rendering
     const rawSubtitleMode = lStyle.subtitle_mode;
     const subtitleMode = (rawSubtitleMode && rawSubtitleMode !== 'auto')
       ? rawSubtitleMode
@@ -217,7 +253,7 @@ export default function LiveCanvasPreview({
     if (subtitleMode === 'hidden') {
       // Clean video output: No subtitles rendered
     } else if (subtitleMode === 'narrative_descriptions') {
-      // 1. Scene story narration ONLY (No lyrics, no overlapping cards)
+      // 1. Scene story narration ONLY
       const descText = activeSlice?.custom_caption || asset.caption || 'Descriptive story narration';
       ctx.save();
       ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
@@ -250,31 +286,62 @@ export default function LiveCanvasPreview({
       ctx.fillText(`🏷️ ACT: ${titleText}`, targetW / 2, subY + 8);
       ctx.restore();
     } else if (subtitleMode === 'karaoke_lyrics') {
-      // 3. Karaoke synced lyrics ONLY
-      if (activePhraseWords.length > 0) {
+      // 3. Line-by-line Karaoke synced lyrics
+      const lineToRender = activeLine || (activePhraseWords.length > 0 ? {
+        words: activePhraseWords,
+        start: activePhraseWords[0].snapped_start,
+        end: activePhraseWords[activePhraseWords.length - 1].snapped_end + 0.3
+      } : null);
+
+      if (lineToRender && lineToRender.words.length > 0) {
         ctx.save();
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.strokeStyle = 'rgba(45, 212, 191, 0.35)';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.roundRect(targetW * 0.08, subY - 22, targetW * 0.84, 48, 10);
+        ctx.roundRect(targetW * 0.06, subY - 22, targetW * 0.88, 46, 10);
         ctx.fill();
+        ctx.stroke();
 
         ctx.font = `bold 15px ${fontFamily}, sans-serif`;
-        ctx.textAlign = 'center';
+        const enableHighlight = lStyle.enable_word_highlight !== false;
 
-        const lineString = activePhraseWords.map((w) => w.word).join(' ');
-        const activeWord = activeWords[0]?.word;
-
-        if (activeWord) {
-          ctx.fillStyle = highlightColor;
-          ctx.fillText(`🎶 ${activeWord.toUpperCase()}`, targetW / 2, subY + 8);
+        if (!enableHighlight) {
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          const lineText = lineToRender.words.map((w) => w.word).join(' ');
+          ctx.fillText(`🎶 ${lineText}`, targetW / 2, subY + 8);
         } else {
-          ctx.fillStyle = '#e2e8f0';
-          ctx.fillText(lineString, targetW / 2, subY + 8);
+          const lineWords = lineToRender.words;
+          const spaceWidth = ctx.measureText(' ').width;
+          const wordMetrics = lineWords.map((w) => ({
+            word: w.word,
+            width: ctx.measureText(w.word).width,
+            isActive: currentTime >= w.snapped_start && currentTime <= w.snapped_end
+          }));
+
+          const totalLineWidth = wordMetrics.reduce((acc, m) => acc + m.width, 0) + (wordMetrics.length - 1) * spaceWidth;
+          let drawX = (targetW - totalLineWidth) / 2;
+
+          ctx.textAlign = 'left';
+          wordMetrics.forEach((m) => {
+            if (m.isActive) {
+              ctx.fillStyle = highlightColor;
+              ctx.shadowColor = highlightColor;
+              ctx.shadowBlur = 8;
+              ctx.fillText(m.word, drawX, subY + 8);
+              ctx.shadowBlur = 0;
+            } else {
+              ctx.fillStyle = '#e2e8f0';
+              ctx.fillText(m.word, drawX, subY + 8);
+            }
+            drawX += m.width + spaceWidth;
+          });
         }
         ctx.restore();
       }
     }
-  }, [currentTime, activeSlice, activeWords, activePhraseWords, aspectRatio, audioTrack, config]);
+  }, [currentTime, activeSlice, activeWords, activePhraseWords, activeLine, lyricLines, aspectRatio, audioTrack, config]);
 
   return (
     <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 flex flex-col items-center justify-center relative overflow-hidden">

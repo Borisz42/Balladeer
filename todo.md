@@ -53,30 +53,34 @@ This document outlines completed milestones, upcoming improvements, technical op
   * Dynamic auto-filling grid layout (`grid-cols-[repeat(auto-fill,minmax(110px,1fr))]`) automatically displaying 4, 5, 6+ columns on wide screens and scaling gracefully on smaller displays.
   * Standardized `aspect-[4/3]` thumbnail cards with smooth hover zoom animations.
 
-### 1.5 System & Engineering Quality
+### 1.5 In-Browser Interactive Lyric & Timestamp Editor
+* [x] **Line-by-Line Grouped Lyric & Timestamp Editor (`LyricEditorModal.jsx`):**
+  * Groups aligned words into natural poetic lines with line-level start/end durations and constituent word grids.
+  * Direct text box overrides across every single line, word token, and full lyric text block.
+  * Precision timestamp nudging (`-50ms` / `+50ms`), insert word (`+`), delete word (`🗑️`), and 1-click "Snap All to Beats".
+  * Audio stem preview player with **Vocals Only** vs **Full Master** toggle and isolated word/line vocal snippet playback.
+  * Optional dynamic teal word highlight toggle (`enable_word_highlight`) for karaoke wipe vs clean line-by-line subtitles.
+  * 1-click on-demand forced re-alignment via `POST /api/projects/{id}/realign-lyrics` and update via `PUT /api/projects/{id}/lyrics`.
+  * Preserved database integrity using `ON CONFLICT DO UPDATE` to prevent foreign key cascading deletes of timeline slices.
+  * Default draft generator and manual line creator for audio tracks without lyrics.
+
+### 1.6 System & Engineering Quality
 * [x] **Centralized Logging System (`logging_config.py`):** Timestamped session logs in `logs/balladeer_YYYYMMDD_HHMMSS.log` with detailed model calls and prompts.
 * [x] **Cross-Platform Line Ending Normalization (`.gitattributes`):** Enforced LF on source/config and CRLF on Windows scripts.
-* [x] **Comprehensive Test Suite:** 50 / 50 unit and integration tests passing (100% pass rate).
+* [x] **Comprehensive Test Suite:** 60 / 60 unit and integration tests passing (100% pass rate).
 
 ---
 
 ## 2. High-Priority Functional Enhancements
 
-### 2.1 In-Browser Interactive Lyric & Timestamp Editor
-* **Description:** Currently, lyrics are generated from the user's travel narrative and aligned via TorchAudio MMS_FA. Adding an interactive lyric editor will allow users to fine-tune generated words, fix misheard lyrics, and nudge individual word timestamps on the timeline.
-* **Proposed Implementation:**
-  * Add a "Lyric Editor" tab in `web/src/components/MusicStudio.jsx` showing the word-level CTC alignment blocks.
-  * Allow dragging word boundaries $\pm 0.1\text{s}$ to snap to adjacent beat ticks.
-  * Add an API endpoint `PUT /api/projects/{project_id}/lyrics` to update aligned tokens without re-running music generation.
-
-### 2.2 Multi-Aspect Simultaneous Batch Export
+### 2.1 Multi-Aspect Simultaneous Batch Export
 * **Description:** Users frequently need 16:9 for YouTube/TV, 9:16 for TikTok/Instagram Reels/Shorts, and 1:1 for Instagram feeds.
 * **Proposed Implementation:**
   * Add a "Batch Export All (16:9, 9:16, 1:1)" option in the UI export modal.
   * In `app/pipeline/compositor.py`, execute parallel NVENC render workers using Python `concurrent.futures.ThreadPoolExecutor` to output `montage_16x9.mp4`, `montage_9x16.mp4`, and `montage_1x1.mp4`.
   * Package all three exports into a single `.zip` download bundle.
 
-### 2.3 GPS Map Track & Itinerary Route Visualization
+### 2.2 GPS Map Track & Itinerary Route Visualization
 * **Description:** Extract GPS coordinates from EXIF metadata and render an animated travel route map interlude between days/acts.
 * **Proposed Implementation:**
   * Parse GPS Latitude & Longitude during EXIF extraction in `indexer.py`.

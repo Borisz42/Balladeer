@@ -57,5 +57,34 @@ class AudioAligner:
     ) -> Tuple[float, Optional[int]]:
         return mms_aligner._snap(time_sec, beat_grid, tolerance_sec)
 
+    def snap_word(
+        self,
+        word: str,
+        start: float,
+        end: float,
+        beat_grid: List[float],
+        line_index: Optional[int] = None,
+        tolerance_sec: Optional[float] = None
+    ) -> AlignedWordModel:
+        return mms_aligner.snap_word(word, start, end, beat_grid, line_index=line_index, tolerance_sec=tolerance_sec)
+
+    def snap_words(
+        self,
+        words: List[AlignedWordModel],
+        beat_grid: List[float],
+        tolerance_sec: Optional[float] = None
+    ) -> List[AlignedWordModel]:
+        return [
+            self.snap_word(
+                word=w.word,
+                start=w.start,
+                end=w.end,
+                beat_grid=beat_grid,
+                line_index=w.line_index,
+                tolerance_sec=tolerance_sec
+            )
+            for w in words
+        ]
+
 aligner = AudioAligner()
 

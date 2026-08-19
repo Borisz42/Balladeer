@@ -38,6 +38,7 @@ export default function TimelineEditor({
   onBulkApply,
   onUpdateSliceCaption,
   onUpdateSliceAudio,
+  onOpenLyricEditor,
   isSolving,
   isRendering
 }) {
@@ -224,6 +225,20 @@ export default function TimelineEditor({
                     : 'Karaoke Lyrics'}
                 </span>
               </span>
+
+              {audioTrack && onOpenLyricEditor && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenLyricEditor();
+                  }}
+                  className="flex items-center gap-0.5 text-[9px] bg-slate-800 hover:bg-slate-700 text-teal-300 px-1.5 py-0.5 rounded border border-slate-700 font-semibold transition"
+                  title="Open interactive lyric & timestamp editor"
+                >
+                  <Edit3 className="w-2.5 h-2.5" />
+                  <span>Edit</span>
+                </button>
+              )}
             </div>
 
             {/* Layer 3: Video & Photo Media Header */}
@@ -391,12 +406,21 @@ export default function TimelineEditor({
                     return (
                       <div
                         key={idx}
-                        className={`absolute h-5 rounded px-1 flex items-center justify-center text-[10px] font-semibold transition-all ${
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onSeek) onSeek(wordObj.snapped_start);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          if (onOpenLyricEditor) onOpenLyricEditor();
+                        }}
+                        className={`absolute h-5 rounded px-1 flex items-center justify-center text-[10px] font-semibold transition-all cursor-pointer group ${
                           isActive
                             ? 'bg-teal-500 text-slate-950 scale-105 shadow-md z-20 font-bold'
-                            : 'bg-slate-800/80 text-slate-300 border border-slate-700/50'
+                            : 'bg-slate-800/90 text-slate-200 border border-slate-700/60 hover:border-teal-400 hover:text-white'
                         }`}
                         style={{ left: `${wLeft}px`, width: `${wWidth}px` }}
+                        title={`"${wordObj.word}" (${wordObj.start}s – ${wordObj.end}s) • Click to seek, Double-click to edit`}
                       >
                         <span className="truncate">{wordObj.word}</span>
                       </div>

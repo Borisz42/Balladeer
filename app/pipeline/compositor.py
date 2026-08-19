@@ -156,21 +156,51 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not aligned:
                 events.append("Dialogue: 0,0:00:00.00,0:00:10.00,Karaoke,,0,0,0,,Balladeer Montage")
             else:
-                words_per_line = 5
-                for i in range(0, len(aligned), words_per_line):
-                    chunk = aligned[i : i + words_per_line]
+                enable_word_highlight = sub_cfg.get("enable_word_highlight", True)
+                
+                # Group words by line_index if defined, otherwise by 5-word chunks
+                lines_chunks: List[List[AlignedWordModel]] = []
+                current_line_idx = None
+                current_chunk: List[AlignedWordModel] = []
+
+                for w in aligned:
+                    w_line = w.line_index
+                    if w_line is not None:
+                        if current_line_idx is None or w_line == current_line_idx:
+                            current_chunk.append(w)
+                            current_line_idx = w_line
+                        else:
+                            if current_chunk:
+                                lines_chunks.append(current_chunk)
+                            current_chunk = [w]
+                            current_line_idx = w_line
+                    else:
+                        current_chunk.append(w)
+                        if len(current_chunk) >= 5:
+                            lines_chunks.append(current_chunk)
+                            current_chunk = []
+
+                if current_chunk:
+                    lines_chunks.append(current_chunk)
+
+                for chunk in lines_chunks:
+                    if not chunk:
+                        continue
                     line_start = chunk[0].snapped_start
                     line_end = chunk[-1].snapped_end + 0.3
                     start_str = self._sec_to_ass_time(line_start)
                     end_str = self._sec_to_ass_time(line_end)
 
-                    karaoke_tokens = []
-                    for w in chunk:
-                        dur_cs = max(10, int((w.snapped_end - w.snapped_start) * 100))
-                        karaoke_tokens.append(f"{{\\k{dur_cs}}}{w.word}")
-
-                    line_text = " ".join(karaoke_tokens)
-                    events.append(f"Dialogue: 0,{start_str},{end_str},Karaoke,,0,0,0,,{line_text}")
+                    if enable_word_highlight:
+                        karaoke_tokens = []
+                        for w in chunk:
+                            dur_cs = max(10, int((w.snapped_end - w.snapped_start) * 100))
+                            karaoke_tokens.append(f"{{\\k{dur_cs}}}{w.word}")
+                        line_text = " ".join(karaoke_tokens)
+                        events.append(f"Dialogue: 0,{start_str},{end_str},Karaoke,,0,0,0,,{line_text}")
+                    else:
+                        line_text = " ".join([w.word for w in chunk])
+                        events.append(f"Dialogue: 0,{start_str},{end_str},Karaoke,,0,0,0,,{{\\fad(200,200)}}{line_text}")
 
         # 4. Overlay: Outro End Card
         outro_text = overlays_cfg.get("outro_text")

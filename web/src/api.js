@@ -227,6 +227,37 @@ export async function uploadCustomAudio(projectId, audioFile, { bpm, is_instrume
   return res.json();
 }
 
+export async function updateLyrics(projectId, { lyrics, aligned_lyrics, auto_snap, enable_word_highlight } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/lyrics`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lyrics: lyrics !== undefined ? lyrics : null,
+      aligned_lyrics: aligned_lyrics !== undefined ? aligned_lyrics : null,
+      auto_snap: auto_snap !== undefined ? auto_snap : true,
+      enable_word_highlight: enable_word_highlight !== undefined ? enable_word_highlight : null
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update lyrics' }));
+    throw new Error(err.detail || 'Failed to update lyrics');
+  }
+  return res.json();
+}
+
+export async function realignLyrics(projectId, lyrics = null) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/realign-lyrics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lyrics: lyrics || null })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to realign lyrics' }));
+    throw new Error(err.detail || 'Failed to realign lyrics');
+  }
+  return res.json();
+}
+
 export async function solveTimeline(projectId) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/solve-timeline`, {
     method: 'POST'

@@ -50,6 +50,7 @@ class AlignedWordModel(BaseModel):
     snapped_start: float
     snapped_end: float
     beat_index: Optional[int] = None
+    line_index: Optional[int] = None
 
 class AudioTrackModel(BaseModel):
     id: str

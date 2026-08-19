@@ -443,9 +443,21 @@ class Database:
         with self.get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO audio_tracks
+                INSERT INTO audio_tracks
                 (id, project_id, master_path, vocal_stem_path, accompaniment_stem_path, prompt, lyrics, is_instrumental, bpm, beat_grid, downbeats, aligned_lyrics)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    project_id=excluded.project_id,
+                    master_path=excluded.master_path,
+                    vocal_stem_path=excluded.vocal_stem_path,
+                    accompaniment_stem_path=excluded.accompaniment_stem_path,
+                    prompt=excluded.prompt,
+                    lyrics=excluded.lyrics,
+                    is_instrumental=excluded.is_instrumental,
+                    bpm=excluded.bpm,
+                    beat_grid=excluded.beat_grid,
+                    downbeats=excluded.downbeats,
+                    aligned_lyrics=excluded.aligned_lyrics
                 """,
                 (
                     track.id,
@@ -483,6 +495,26 @@ class Database:
                 downbeats=json.loads(row["downbeats"]) if row["downbeats"] else [],
                 aligned_lyrics=[AlignedWordModel(**w) for w in json.loads(row["aligned_lyrics"])] if row["aligned_lyrics"] else []
             )
+
+    def update_audio_track_lyrics(
+        self,
+        project_id: str,
+        lyrics: Optional[str] = None,
+        aligned_lyrics: Optional[List[AlignedWordModel]] = None
+    ) -> Optional[AudioTrackModel]:
+        track = self.get_audio_track(project_id)
+        if not track:
+            return None
+
+        if lyrics is not None:
+            track.lyrics = lyrics
+            if track.is_instrumental and lyrics.strip():
+                track.is_instrumental = False
+        if aligned_lyrics is not None:
+            track.aligned_lyrics = aligned_lyrics
+
+        self.save_audio_track(track)
+        return self.get_audio_track(project_id)
 
     # Timeline Slice Operations
     def save_timeline_slices(self, project_id: str, slices: List[TimelineSliceModel]) -> List[TimelineSliceModel]:

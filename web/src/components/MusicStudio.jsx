@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Music, Play, RotateCw, Mic, Disc3, BookOpen, Upload, Copy, Check, Sparkles } from 'lucide-react';
+import { Music, Play, RotateCw, Mic, Disc3, BookOpen, Upload, Copy, Check, Sparkles, Sliders, Edit3 } from 'lucide-react';
 
 export default function MusicStudio({
   project,
@@ -7,6 +7,7 @@ export default function MusicStudio({
   onGenerateMusic,
   onUploadAudio,
   onOpenDiary,
+  onOpenLyricEditor,
   isGenerating,
   health
 }) {
@@ -235,20 +236,41 @@ export default function MusicStudio({
         </div>
 
         {/* Structured Lyrics Block */}
-        <div className="space-y-1 bg-slate-950/60 rounded-xl p-2.5 border border-slate-800/80">
+        <div className="space-y-2 bg-slate-950/60 rounded-xl p-2.5 border border-slate-800/80">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-              {audioTrack?.is_instrumental ? 'Event Cards' : 'Lyrics'}
-            </span>
-            {audioTrack?.lyrics && (
-              <button
-                onClick={handleCopyLyrics}
-                className="flex items-center gap-1 text-[9px] text-slate-300 hover:text-white"
-              >
-                {copiedLyrics ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
-                {copiedLyrics ? 'Copied' : 'Copy'}
-              </button>
-            )}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                {audioTrack?.is_instrumental ? 'Event Cards' : 'Lyrics & Timings'}
+              </span>
+              {audioTrack?.aligned_lyrics?.length > 0 && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-teal-950 text-teal-400 font-mono font-semibold border border-teal-800">
+                  {audioTrack.aligned_lyrics.length} words
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {audioTrack && onOpenLyricEditor && (
+                <button
+                  onClick={onOpenLyricEditor}
+                  className="flex items-center gap-1 text-[10px] bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 px-2 py-0.5 rounded font-semibold transition"
+                  title="Open in-browser interactive lyric & timestamp editor"
+                >
+                  <Edit3 className="w-2.5 h-2.5" />
+                  <span>Edit Lyrics</span>
+                </button>
+              )}
+
+              {audioTrack?.lyrics && (
+                <button
+                  onClick={handleCopyLyrics}
+                  className="flex items-center gap-1 text-[9px] text-slate-300 hover:text-white"
+                >
+                  {copiedLyrics ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                  {copiedLyrics ? 'Copied' : 'Copy'}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="max-h-28 overflow-y-auto font-mono text-[10px] text-slate-300 bg-slate-900/90 rounded-lg p-2 border border-slate-800 space-y-1">

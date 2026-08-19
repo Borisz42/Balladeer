@@ -12,6 +12,7 @@ import ModelManagerModal from './components/ModelManagerModal';
 import ProjectManagerModal from './components/ProjectManagerModal';
 import RenameProjectModal from './components/RenameProjectModal';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
+import LyricEditorModal from './components/LyricEditorModal';
 import {
   fetchHealth,
   fetchSystemSettings,
@@ -30,6 +31,8 @@ import {
   indexPendingMedia,
   generateMusic,
   uploadCustomAudio,
+  updateLyrics,
+  realignLyrics,
   solveTimeline,
   updateSlice,
   splitSlice,
@@ -64,8 +67,10 @@ export default function App() {
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isLyricEditorOpen, setIsLyricEditorOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
+  const [isRealigningLyrics, setIsRealigningLyrics] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingMusic, setIsGeneratingMusic] = useState(false);
@@ -383,6 +388,31 @@ export default function App() {
     }
   };
 
+  const handleUpdateLyrics = async (payload) => {
+    if (!currentProjectId) return;
+    try {
+      await updateLyrics(currentProjectId, payload);
+      await loadProjectDetail(currentProjectId);
+    } catch (err) {
+      console.error('Failed to update lyrics:', err);
+      throw err;
+    }
+  };
+
+  const handleRealignLyrics = async (lyricsText) => {
+    if (!currentProjectId) return;
+    setIsRealigningLyrics(true);
+    try {
+      await realignLyrics(currentProjectId, lyricsText);
+      await loadProjectDetail(currentProjectId);
+    } catch (err) {
+      console.error('Failed to realign lyrics:', err);
+      throw err;
+    } finally {
+      setIsRealigningLyrics(false);
+    }
+  };
+
   const handleSolveTimeline = async () => {
     if (!currentProjectId) return;
     setIsSolvingTimeline(true);
@@ -663,6 +693,7 @@ export default function App() {
                 onGenerateMusic={handleGenerateMusic}
                 onUploadAudio={handleUploadCustomAudio}
                 onOpenDiary={() => setIsDiaryModalOpen(true)}
+                onOpenLyricEditor={() => setIsLyricEditorOpen(true)}
                 isGenerating={isGeneratingMusic}
                 health={health}
               />
@@ -688,6 +719,7 @@ export default function App() {
                 onBulkApply={handleBulkApplyTimelineEffects}
                 onUpdateSliceCaption={handleUpdateSliceCaption}
                 onUpdateSliceAudio={handleUpdateSliceAudio}
+                onOpenLyricEditor={() => setIsLyricEditorOpen(true)}
                 isSolving={isSolvingTimeline}
                 isRendering={isRendering}
               />
@@ -695,6 +727,16 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <LyricEditorModal
+        isOpen={isLyricEditorOpen}
+        onClose={() => setIsLyricEditorOpen(false)}
+        project={projectDetail?.project}
+        audioTrack={projectDetail?.audio_track}
+        onUpdateLyrics={handleUpdateLyrics}
+        onRealignLyrics={handleRealignLyrics}
+        isRealigning={isRealigningLyrics}
+      />
 
       <NewProjectModal
         isOpen={isNewProjectModalOpen}
