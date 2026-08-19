@@ -4,15 +4,17 @@ import numpy as np
 from pathlib import Path
 from app.database import db, ProjectModel
 from app.pipeline.indexer import indexer
-from app.models.qwen_vlm import qwen_vlm
+from app.models.local_vlm import local_vlm
 
 from unittest.mock import MagicMock
 
 @pytest.fixture(autouse=True)
-def mock_qwen_llm(monkeypatch):
-    monkeypatch.setattr(qwen_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
-    monkeypatch.setattr(qwen_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic video clip of a journey", "tags": ["video", "scenic"], "quality_score": 8.0}')
-    monkeypatch.setattr(qwen_vlm, "_loaded_model_name", "local-qwen3.5-4b")
+def mock_local_vlm(monkeypatch):
+    from app.core.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(local_vlm, "_get_model_and_processor", lambda: (MagicMock(), MagicMock()))
+    monkeypatch.setattr(local_vlm, "_generate_vlm_output", lambda m, p, img, txt: '{"caption": "A scenic video clip of a journey", "tags": ["video", "scenic"], "quality_score": 8.0}')
+    monkeypatch.setattr(local_vlm, "_loaded_model_name", settings.indexing.local_model)
 
 
 def test_video_indexing_foreign_key_integrity(tmp_path):

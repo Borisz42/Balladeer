@@ -81,7 +81,7 @@ export default function App() {
         const hData = await fetchHealth();
         setHealth(hData);
       } catch (e) {}
-    }, 2500);
+    }, 1500);
     return () => clearInterval(interval);
   }, []);
 

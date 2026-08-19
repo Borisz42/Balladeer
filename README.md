@@ -1,14 +1,14 @@
 # Balladeer 🎶🎬
 
 > **Hybrid Cloud-Local AI Beat-Synced Video Montage Engine**  
-> Transform your travel logs, photos, and video clips into beat-synchronized cinematic music videos—powered by a high-throughput **Google AI Studio Free-Tier Model Waterfall**, an **Intelligent Multi-Tier Dispatcher**, local **Qwen3.5-4B GPU VLM fallback**, **Google Flow Music (MusicFX / Lyria)** prompt optimization, and hardware-accelerated **FFmpeg NVENC** video compositing.
+> Transform your travel logs, photos, and video clips into beat-synchronized cinematic music videos—powered by a high-throughput **Google AI Studio Free-Tier Model Waterfall**, an **Intelligent Multi-Tier Dispatcher**, local **Qwen 2.5 VL GPU fallback**, **Google Flow Music (MusicFX / Lyria)** prompt optimization, and hardware-accelerated **FFmpeg NVENC** video compositing.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](https://www.python.org/)
 [![VRAM Budget](https://img.shields.io/badge/VRAM%20Budget-8GB%20RTX%203070-orange.svg)](#hardware-requirements)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-61DAFB.svg)](https://vitejs.dev/)
-[![Tests](https://img.shields.io/badge/Tests-30%2F30%20Passing-brightgreen.svg)](#automated-test-suite)
+[![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen.svg)](#automated-test-suite)
 
 ---
 
@@ -17,7 +17,7 @@
 **Balladeer** transforms raw vacation photo dumps, video clips, and trip diary logs into cohesive, beat-accurate music video montages with custom AI-composed songs.
 
 Unlike traditional montage generators that randomly splice clips on arbitrary beat ticks, Balladeer:
-1. **Parallel Batch Vision Indexing:** Ingests media in parallel chunks (up to 25 items/batch) using a multi-tier Google AI Studio model priority waterfall (`Gemini 3.5 Flash Lite` $\rightarrow$ `3.1 Flash Lite` $\rightarrow$ `2.5 Flash Lite` $\rightarrow$ `Gemma 4` $\rightarrow$ Local `Qwen3.5-4B` fallback).
+1. **Parallel Batch Vision Indexing:** Ingests media in parallel chunks (up to 25 items/batch) using a multi-tier Google AI Studio model priority waterfall (`Gemini 3.5 Flash Lite` $\rightarrow$ `3.1 Flash Lite` $\rightarrow$ `2.5 Flash Lite` $\rightarrow$ `Gemma 4` $\rightarrow$ Local `Qwen 2.5 VL` fallback).
 2. **Google Flow Music & Structured Lyrics:** Optimizes rich musical prompts tailored specifically for **Google Flow Music (MusicFX / Lyria)** and structures 5-act rhyming lyrics (*Verse 1 $\rightarrow$ Chorus $\rightarrow$ Verse 2 $\rightarrow$ Bridge $\rightarrow$ Outro*).
 3. **Optional Local MiniMax 3 Engine:** Provides an on-device synthesis switch for **MiniMax Music 3** executed natively via **Cortiq CMF** with **Vulkan RTX 3070 GPU compute shaders**.
 4. **Isolates Vocals & Tracks Beats:** Uses **Demucs** 2-stem separation and **Librosa** onset beat tracking on uploaded or synthesized audio.
@@ -29,7 +29,7 @@ Unlike traditional montage generators that randomly splice clips on arbitrary be
 
 ## 🌊 Model Priority Waterfalls & Quota Pool Strategy
 
-Your quotas naturally divide into **High-Volume Workhorses** (Flash Lite & Gemma), **High-Reasoning Specialists** (Flash 3.x), and **Local Fallback** (`Qwen3.5-4B` on RTX GPU).
+Your quotas naturally divide into **High-Volume Workhorses** (Flash Lite & Gemma), **High-Reasoning Specialists** (Flash 3.x), and **Local Fallback** (`Qwen 2.5 VL (3B)` on RTX GPU).
 
 ```
 VISION INDEXING WATERFALL (Batch Images / Video Frames)
@@ -38,13 +38,13 @@ VISION INDEXING WATERFALL (Batch Images / Video Frames)
 3. Gemini 2.5 Flash Lite  (10 RPM | 250K TPM | 20 RPD)   ──► Lite overflow pool
 4. Gemini 3.7 / 3.6 Flash (5 RPM  | 250K TPM | 20 RPD)   ──► Overflow pool
 5. Gemma 4 31B / 26B      (30 RPM | 16K TPM  | 14.4K RPD)──► Micro-batches (<15k tokens)
-6. Local Qwen3.5-4B       (Unlimited | Local RTX 3070)   ──► Hard fallback if cloud is depleted / offline / local mode
+6. Local Qwen 2.5 VL 3B   (Unlimited | Local RTX 3070)   ──► Hard fallback if cloud is depleted / offline / local mode
 
 STORY & RHYMING LYRIC WATERFALL (Text Planning & Google Flow Music Prompts)
 1. Gemini 3.7 Flash       (Top lyrical quality & Flow Music prompt structuring)
 2. Gemma 4 31B / 26B      (30 RPM | 14.4K RPD | 16K TPM — massive daily capacity)
 3. Gemini 3.5 Flash Lite  (High speed, structured JSON adherence)
-4. Local Qwen3.5-4B       (Offline local fallback)
+4. Local Qwen 2.5 VL 3B   (Offline local fallback)
 ```
 
 ### Quota Pool Strategy
@@ -66,7 +66,7 @@ STORY & RHYMING LYRIC WATERFALL (Text Planning & Google Flow Music Prompts)
 │  • Intelligent Model Dispatcher (Gemini Flash Lite -> Gemma -> Local)  │
 │  • Scene Cut & Subsegment Detector (PySceneDetect / OpenCV)            │
 │  • Visual Embeddings & Search (SigLIP 2 Base 768-dim FP16)             │
-│  • Local Visual-Language Model Fallback (Qwen3.5-4B-GGUF Q4_K_M)       │
+│  • Local Visual-Language Model Fallback (Qwen 2.5 VL 3B NF4)           │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
 ▼
@@ -232,7 +232,7 @@ Balladeer/
 │   ├── models/               # Model inference runners & dispatchers
 │   │   ├── model_router.py   # Intelligent Multi-Tier Model Dispatcher & Quota Tracker
 │   │   ├── gemini_client.py  # Google AI Studio Free Tier API client (Gemini & Gemma)
-│   │   ├── qwen_vlm.py       # Qwen3.5-4B-GGUF local VLM runner & heuristic scorer
+│   │   ├── local_vlm.py      # High-throughput unified local VLM runner & text generator
 │   │   ├── minimax_music.py  # MiniMax Music 3 synthesis engine
 │   │   ├── cmf_runner.py     # Cortiq CMF MiniMax Music 3 native runner (Vulkan GPU)
 │   │   ├── comfy_music_worker.py # Headless ComfyUI worker interface
@@ -254,7 +254,7 @@ Balladeer/
 │   └── package.json
 ├── tools/                    # Local native binaries (cortiq.exe)
 ├── scripts/                  # Model downloaders and utility scripts
-├── tests/                    # 30 automated unit and integration tests
+├── tests/                    # Automated unit and integration tests
 ├── start_balladeer.bat       # One-click Windows startup script
 ├── status.md                 # Project status & architectural breakdown
 ├── todo.md                   # Roadmap & optimizations
@@ -273,10 +273,12 @@ hardware:
   max_vram_gb: 8.0
 
 indexing:
-  vlm_model: "unsloth/Qwen3.5-4B-GGUF"
+  local_model: "qwen2.5-vl-3b"
+  vlm_model: "Qwen/Qwen2.5-VL-3B-Instruct"
+  vlm_display_name: "Qwen 2.5 VL (3B)"
   quality_threshold: 6.0
   scene_detection_threshold: 0.3
-  batch_size: 20
+  batch_size: 8
 
 google_ai:
   api_key: ""                 # Can also be set in .env or via the web UI

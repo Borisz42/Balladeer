@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-Balladeer is a high-performance hybrid AI video montage engine that transforms travel photos, video clips, and structured trip diaries into beat-synchronized cinematic music videos. The system combines an asynchronous 2-step media ingestion process with a multi-tier Google AI Studio model priority waterfall, offline GPU inference (`Qwen3.5-4B` and `Qwen3.5-9B` VLM on RTX 3070), EXIF orientation transposition, dynamic media preview sizing, responsive multi-column gallery tiling, date-aware multi-modal indexing, AI travel diary re-phrasing, real-time asset inspection & editing, and Google Flow Music prompt optimization.
+Balladeer is a high-performance hybrid AI video montage engine that transforms travel photos, video clips, and structured trip diaries into beat-synchronized cinematic music videos. The system combines an asynchronous 2-step media ingestion process with a multi-tier Google AI Studio model priority waterfall, offline GPU inference (`Qwen 2.5 VL (3B)` on RTX 3070), EXIF orientation transposition, dynamic media preview sizing, responsive multi-column gallery tiling, date-aware multi-modal indexing, AI travel diary re-phrasing, real-time asset inspection & editing, and Google Flow Music prompt optimization.
 
 ---
 
@@ -32,7 +32,7 @@ Balladeer is a high-performance hybrid AI video montage engine that transforms t
     3. `Gemini 2.5 Flash Lite` (10 RPM | 250K TPM | 20 RPD) — Lite overflow pool
     4. `Gemini 3.7 / 3.6 Flash` (5 RPM | 250K TPM | 20 RPD) — Overflow pool
     5. `Gemma 4 31B / 26B` (30 RPM | 16K TPM | 14.4K RPD) — Micro-batches
-    6. `Local Qwen 3.5 (4B / 9B)` (Unlimited | RTX 3070) — Hard fallback when cloud quotas saturate or in offline mode
+    6. `Local Qwen 2.5 VL (3B)` (Unlimited | RTX 3070) — Hard fallback when cloud quotas saturate or in offline mode
 * **Model Attribution & Inspector Modal (`AssetDetailModal.jsx`):**
   * Displays thumbnail and large media preview.
   * Shows which AI model was used (`indexed_by_model`).
@@ -136,9 +136,9 @@ tests/test_local_ai_and_video_vision.py::test_local_ai_video_indexing_and_subseg
 tests/test_model_router.py::test_model_quota_sliding_window PASSED       [ 54%]
 tests/test_model_router.py::test_model_router_waterfall_fallback PASSED  [ 56%]
 tests/test_model_router.py::test_model_router_only_local_ai_mode PASSED  [ 58%]
-tests/test_model_wrappers.py::test_qwen_vlm_heuristic PASSED             [ 60%]
-tests/test_model_wrappers.py::test_qwen_vlm_markdown_fenced_json PASSED  [ 62%]
-tests/test_model_wrappers.py::test_qwen_vlm_malformed_fence_fallback PASSED [ 64%]
+tests/test_model_wrappers.py::test_local_vlm_heuristic PASSED            [ 60%]
+tests/test_model_wrappers.py::test_local_vlm_markdown_fenced_json PASSED [ 62%]
+tests/test_model_wrappers.py::test_local_vlm_malformed_fence_fallback PASSED [ 64%]
 tests/test_model_wrappers.py::test_minimax_music_engine PASSED           [ 66%]
 tests/test_model_wrappers.py::test_mms_aligner PASSED                    [ 68%]
 tests/test_models_api.py::test_models_status_api PASSED                  [ 70%]

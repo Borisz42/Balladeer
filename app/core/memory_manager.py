@@ -17,7 +17,7 @@ class GPUMemoryManager:
         self.max_vram_gb = max_vram_gb
         self.device = torch.device(self.device_str)
         self._current_phase: Optional[str] = None
-        self._loading_model: Optional[str] = None
+        self._loading_models: Dict[str, str] = {}
         self._loaded_models: Dict[str, str] = {}
 
     @property
@@ -26,27 +26,38 @@ class GPUMemoryManager:
 
     @property
     def loading_model(self) -> Optional[str]:
-        return self._loading_model
+        if self._loading_models:
+            return next(reversed(list(self._loading_models.values())))
+        return None
 
     @property
     def loaded_models(self) -> List[str]:
         return list(self._loaded_models.values())
 
-    def set_loading(self, model_name: Optional[str]) -> None:
-        self._loading_model = model_name
+    def set_loading(self, model_name: Optional[str], key: str = "default") -> None:
         if model_name:
+            self._loading_models[key] = model_name
             logger.info(f"[GPU-Status] ⏳ Loading model into GPU: {model_name}...")
         else:
+            if key in self._loading_models:
+                del self._loading_models[key]
+            elif not key or key == "default":
+                self._loading_models.clear()
             logger.debug("[GPU-Status] Model loading state cleared.")
 
     def set_loaded(self, key: str, display_name: str) -> None:
         self._loaded_models[key] = display_name
-        self._loading_model = None
+        if key in self._loading_models:
+            del self._loading_models[key]
+        elif len(self._loading_models) == 1:
+            self._loading_models.clear()
         logger.info(f"[GPU-Status] ✓ Model loaded in VRAM: {display_name}")
 
     def remove_loaded(self, key: str) -> None:
         if key in self._loaded_models:
             del self._loaded_models[key]
+        if key in self._loading_models:
+            del self._loading_models[key]
 
     def get_vram_usage(self) -> Dict[str, float]:
         """Returns allocated, reserved, and total VRAM in GB."""

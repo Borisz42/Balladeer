@@ -14,10 +14,10 @@ This document outlines completed milestones, upcoming improvements, technical op
 * [x] **"Only Local AI" Isolation Toggle:** One-click setting in the UI to disable all cloud APIs and execute 100% locally offline.
 
 ### 1.2 Multimodal Local Vision & Model Manager
-* [x] **True Multimodal Local Qwen 3.5 VLM (`qwen_vlm.py`):**
-  * Multimodal vision projector binding (`Qwen25VLChatHandler` + `mmproj-F16.gguf`) for both **Qwen 3.5 4B** and **Qwen 3.5 9B**.
-  * Dynamic in-memory model switching between 4B and 9B from the UI.
-  * Image pre-scaling to 512px and 8-thread multi-core parallelism reducing inference latency by 75%.
+* [x] **Config-Driven Multimodal Local VLM Engine (`local_vlm.py`):**
+  * High-throughput unified Vision & Text generation runner powered by `Qwen/Qwen2.5-VL-3B-Instruct` (NF4 4-bit CUDA quantization).
+  * Configurable model parameters via `IndexingSettings` / `.env` for easy model swapping without code changes.
+  * Image pre-scaling to 256px/512px and batched PyTorch inference.
   * 100% offline local inference with zero network calls.
 * [x] **2-Step Media Ingestion & Staging Engine (`indexer.py`):**
   * Step 1: Rapid metadata extraction (EXIF, duration, dimensions) + instant thumbnail generation.
@@ -28,7 +28,6 @@ This document outlines completed milestones, upcoming improvements, technical op
   * 1-click single-asset re-indexing.
 * [x] **Model Manager Modal (`ModelManagerModal.jsx`):**
   * Visual model status table with Hugging Face download triggers and progress tracking.
-  * Local model selector card (4B vs 9B) with VRAM/RAM footprints.
   * Gemini API key input and Only-Local AI toggle.
 
 ### 1.3 Structured Diary & Travel Itinerary Engine
@@ -45,7 +44,7 @@ This document outlines completed milestones, upcoming improvements, technical op
   * Transposes images automatically during fast thumbnail generation in `indexer.py` so rotated camera/smartphone photos render upright in the Source Media gallery.
   * Corrects image dimensions during EXIF metadata extraction to match actual visual orientation.
   * Transposes source images in `compositor.py` before video frame rendering, preventing rotated stills in final montage exports.
-  * Added EXIF transpose handling in `siglip_embedder.py`, `qwen_vlm.py`, and `gemini_client.py`.
+  * Added EXIF transpose handling in `siglip_embedder.py`, `local_vlm.py`, and `gemini_client.py`.
 * [x] **Dynamic Sizing Media Preview (Inspector & Modals):**
   * Replaced fixed `h-44` (176px) letterboxed preview with dynamic vertical expansion container (`min-h-[220px] max-h-[380px] sm:max-h-[440px]`).
   * Media elements (`<img>` and `<video>`) expand vertically maximally and scale horizontally to preserve true aspect ratio.
@@ -150,4 +149,4 @@ This document outlines completed milestones, upcoming improvements, technical op
   * Use PyInstaller / Inno Setup to bundle FastAPI, React static dist, FFmpeg, and `cortiq.exe` into a single standalone distribution folder.
 
 ### 6.2 Automated Model Weight Verification on Startup
-* **Description:** Run a quick health check on application start to verify that `minimax-music3-q4tp.cmf`, `Qwen3.5-4B-Q4_K_M.gguf`, and `Qwen3.5-9B-Q4_K_M.gguf` file sizes and hashes match official releases, notifying the user immediately if weights are corrupted or incomplete.
+* **Description:** Run a quick health check on application start to verify that `minimax-music3-q4tp.cmf` and local model weights file sizes and hashes match official releases, notifying the user immediately if weights are corrupted or incomplete.

@@ -69,6 +69,7 @@ class HardwareSettings(BaseModel):
 class IndexingSettings(BaseModel):
     local_model: str = "qwen2.5-vl-3b"
     vlm_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"
+    vlm_display_name: str = "Qwen 2.5 VL (3B)"
     vlm_quant: str = "nf4"
     quality_threshold: float = 6.0
     scene_detection_threshold: float = 0.3
@@ -77,6 +78,11 @@ class IndexingSettings(BaseModel):
     fallback_to_heuristic: bool = True
     batch_size: int = 8
     max_parallel_workers: int = 4
+
+    @property
+    def local_slug(self) -> str:
+        slug = self.local_model.strip()
+        return slug if slug.startswith("local-") else f"local-{slug}"
 
 
 class GoogleAISettings(BaseModel):
@@ -116,7 +122,7 @@ class VideoSettings(BaseModel):
 
 class HuggingFaceSettings(BaseModel):
     api_key: str = ""
-    vlm_model_id: str = "unsloth/Qwen3.5-4B-GGUF"
+    vlm_model_id: str = "Qwen/Qwen2.5-VL-3B-Instruct"
     siglip_model_id: str = "google/siglip2-base-patch16-224"
 
 class BalladeerSettings(BaseSettings):

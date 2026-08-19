@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from app.main import app
 from app.models.demucs_separator import demucs_separator
+from app.models.local_vlm import local_vlm
 
 client = TestClient(app)
 
@@ -19,6 +20,7 @@ def mock_demucs_separation(monkeypatch):
         return {"vocals": voc, "accompaniment": acc}
 
     monkeypatch.setattr(demucs_separator, "separate", fake_separate)
+    monkeypatch.setattr(local_vlm, "generate_story_and_lyrics", lambda acts, narrative_text="", is_instrumental=False: ("[Verse 1]\nSplit test line", "Upbeat travel pop"))
 
 def test_split_and_reorder_api():
     # 1. Create project

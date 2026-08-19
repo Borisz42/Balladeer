@@ -29,10 +29,21 @@ async def lifespan(app: FastAPI):
     logger.info("   Balladeer Server Initialized (Ready on http://localhost:8000)")
     logger.info("================================================================")
     
-    # Asynchronously pre-warm local AI engine in background
+    # Asynchronously pre-warm local AI engines in background (SigLIP 2 followed by Local VLM)
     import asyncio
-    from app.models.qwen_llm import qwen_llm
-    asyncio.create_task(qwen_llm.prewarm_async())
+    from app.models.siglip_embedder import siglip_embedder
+    from app.models.local_vlm import local_vlm
+
+    async def _startup_prewarm():
+        try:
+            # 1. Prewarm SigLIP 2 (~0.8 GB VRAM)
+            await siglip_embedder.prewarm_async()
+            # 2. Prewarm Local VLM (~2.2 GB VRAM)
+            await local_vlm.prewarm_async()
+        except Exception as err:
+            logger.warning(f"[Startup] AI prewarming note: {err}")
+
+    asyncio.create_task(_startup_prewarm())
 
     yield
     # Graceful Shutdown on Ctrl+C or /api/system/shutdown
