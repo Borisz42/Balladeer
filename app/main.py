@@ -64,7 +64,6 @@ app.mount("/static/output", StaticFiles(directory=str(settings.output_dir)), nam
 
 @app.get("/api/health")
 def health_check():
-    from app.models.comfy_music_worker import comfy_music_worker
     vram = memory_manager.get_vram_usage()
     return {
         "status": "healthy",
@@ -73,7 +72,6 @@ def health_check():
         "vram_stats": vram,
         "loading_model": memory_manager.loading_model,
         "loaded_models": memory_manager.loaded_models,
-        "comfy_online": comfy_music_worker.is_available(),
         "config": {
             "resolution": settings.video.resolution,
             "photo_beat_range": settings.video.photo_beat_range,

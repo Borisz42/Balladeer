@@ -198,7 +198,7 @@ export async function fetchAssetFrameScores(projectId, assetId) {
   return res.json();
 }
 
-export async function generateMusic(projectId, { prompt, bpm, durationSec, is_instrumental, enable_local_synthesis } = {}) {
+export async function generateMusic(projectId, { prompt, bpm, durationSec, is_instrumental } = {}) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/generate-music`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -206,8 +206,7 @@ export async function generateMusic(projectId, { prompt, bpm, durationSec, is_in
       prompt: prompt || null,
       bpm: bpm || 120.0,
       duration_sec: durationSec || 30.0,
-      is_instrumental: is_instrumental || false,
-      enable_local_synthesis: enable_local_synthesis || false
+      is_instrumental: is_instrumental || false
     })
   });
   if (!res.ok) throw new Error('Failed to generate music');

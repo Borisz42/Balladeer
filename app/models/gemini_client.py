@@ -207,7 +207,7 @@ class GoogleAIStudioClient:
     ) -> Dict[str, Any]:
         """
         Structures a travel diary into 5 musical acts and generates a prompt
-        meticulously optimized for Google Flow Music (MusicFX / Lyria) and MiniMax Music 3.
+        meticulously optimized for Google Flow Music (MusicFX / Lyria) and AI audio generation.
         """
         api_key = self._get_api_key()
         if not api_key:

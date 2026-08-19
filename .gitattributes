@@ -55,7 +55,6 @@
 *.lib binary
 *.bin binary
 *.gguf binary
-*.cmf binary
 *.safetensors binary
 *.pt binary
 *.pth binary

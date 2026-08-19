@@ -88,14 +88,6 @@ def perform_clean_shutdown():
     except Exception as e:
         logger.debug(f"VRAM cleanup notice: {e}")
 
-    # 3. Terminate background ComfyUI worker if running
-    try:
-        from app.models.comfy_music_worker import comfy_music_worker
-        if hasattr(comfy_music_worker, "shutdown"):
-            comfy_music_worker.shutdown()
-    except Exception as e:
-        logger.debug(f"ComfyUI cleanup notice: {e}")
-
     logger.info("✓ System ready for exit. Goodbye!")
 
 async def async_shutdown_process():

@@ -45,38 +45,7 @@ if %ERRORLEVEL% equ 0 (
     )
 )
 
-REM 4. Auto-Install & Setup ComfyUI for MiniMax Music 3 Neural Synthesis
-if not exist "ComfyUI\main.py" (
-    echo [*] ComfyUI not detected locally. Setting up ComfyUI for MiniMax Music 3 neural synthesis...
-    where git >nul 2>nul
-    if %ERRORLEVEL% equ 0 (
-        echo [*] Cloning ComfyUI repository...
-        git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git ComfyUI
-    ) else (
-        echo [WARNING] Git is not found in PATH. Skipping ComfyUI automatic clone.
-    )
-)
-
-if exist "ComfyUI\requirements.txt" (
-    if not exist "ComfyUI\.installed" (
-        echo [*] Installing ComfyUI core dependencies...
-        pip install -r ComfyUI\requirements.txt
-        type nul > "ComfyUI\.installed"
-    )
-)
-
-REM 5. Start ComfyUI Headless Engine in Background if not already running on port 8188
-netstat -ano | findstr :8188 >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    if exist "ComfyUI\main.py" (
-        echo [*] Starting ComfyUI Headless Engine on http://127.0.0.1:8188 ...
-        start "Balladeer-ComfyUI-Worker" /min python ComfyUI\main.py --listen 127.0.0.1 --port 8188 --novram
-    )
-) else (
-    echo [*] ComfyUI instance already running on http://127.0.0.1:8188.
-)
-
-REM 6. Launch web browser in background after 2 seconds
+REM 4. Launch web browser in background after 2 seconds
 start "" powershell -NoProfile -Command "Start-Sleep -Seconds 2; Start-Process 'http://localhost:8000'"
 
 echo.
@@ -88,11 +57,8 @@ echo [*] Press Ctrl+C in this window to stop the server anytime.
 echo ===============================================================================
 echo.
 
-REM 7. Launch FastAPI backend in the foreground
+REM 5. Launch FastAPI backend in the foreground
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-REM 8. Gracefully terminate background ComfyUI worker on exit
-taskkill /FI "WINDOWTITLE eq Balladeer-ComfyUI-Worker*" /F >nul 2>nul
 
 echo.
 echo ===============================================================================

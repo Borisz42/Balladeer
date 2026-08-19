@@ -15,7 +15,6 @@ export default function MusicStudio({
   const [prompt, setPrompt] = useState(audioTrack?.prompt || '');
   const [activeStem, setActiveStem] = useState('master');
   const [isInstrumental, setIsInstrumental] = useState(audioTrack?.is_instrumental || false);
-  const [enableLocalSynthesis, setEnableLocalSynthesis] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [copiedLyrics, setCopiedLyrics] = useState(false);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
@@ -27,8 +26,7 @@ export default function MusicStudio({
       bpm: parseFloat(bpm),
       duration_sec: parseFloat(duration),
       prompt: prompt.trim() || undefined,
-      is_instrumental: isInstrumental,
-      enable_local_synthesis: enableLocalSynthesis
+      is_instrumental: isInstrumental
     });
   };
 

@@ -86,20 +86,11 @@ class GoogleAISettings(BaseModel):
     enable_cloud_waterfall: bool = True
 
 class AudioSettings(BaseModel):
-    music_model: str = "infosave/MiniMax-Music-3-cmf"
-    cmf_filename: str = "minimax-music3-q4tp.cmf"
     sample_rate: int = 32000
     beat_snap_tolerance_sec: float = 0.25
     default_tempo_bpm: float = 120.0
     demucs_model: str = "htdemucs"
     alignment_model: str = "MMS_FA"
-    enable_local_synthesis: bool = False
-
-class ComfyUISettings(BaseModel):
-    host: str = "127.0.0.1"
-    port: int = 8188
-    auto_launch: bool = False
-    model_path: Optional[str] = "data/weights/minimax-music3/minimax-music3-q4tp.cmf"
 
 class VideoSettings(BaseModel):
     resolution: Tuple[int, int] = (1920, 1080)
@@ -131,7 +122,6 @@ class BalladeerSettings(BaseSettings):
     indexing: IndexingSettings = Field(default_factory=IndexingSettings)
     google_ai: GoogleAISettings = Field(default_factory=GoogleAISettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
-    comfyui: ComfyUISettings = Field(default_factory=ComfyUISettings)
     video: VideoSettings = Field(default_factory=VideoSettings)
     huggingface: HuggingFaceSettings = Field(default_factory=HuggingFaceSettings)
 
@@ -160,8 +150,6 @@ def get_settings() -> BalladeerSettings:
                 settings.google_ai = GoogleAISettings(**config_dict["google_ai"])
             if "audio" in config_dict:
                 settings.audio = AudioSettings(**config_dict["audio"])
-            if "comfyui" in config_dict:
-                settings.comfyui = ComfyUISettings(**config_dict["comfyui"])
             if "video" in config_dict:
                 settings.video = VideoSettings(**config_dict["video"])
             if "huggingface" in config_dict:

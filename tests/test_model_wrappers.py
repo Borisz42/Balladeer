@@ -2,7 +2,6 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 from app.models.qwen_vlm import qwen_vlm
-from app.models.minimax_music import minimax_music
 from app.models.demucs_wrapper import demucs_separator
 from app.models.mms_aligner import mms_aligner
 
@@ -43,19 +42,6 @@ def test_qwen_vlm_malformed_fence_fallback(monkeypatch):
     assert not res["caption"].startswith("```")
     assert len(res["caption"]) > 8
 
-
-def test_minimax_music_engine():
-    stems = minimax_music.generate(
-        lyrics="Day 1 in the city\nDay 2 in the wild",
-        prompt="Acoustic pop",
-        bpm=120.0,
-        target_duration_sec=3.0,
-        is_instrumental=False
-    )
-    assert "master" in stems
-    assert "vocals" in stems
-    assert "accompaniment" in stems
-    assert len(stems["master"]) > 0
 
 def test_mms_aligner():
     beat_grid = [0.0, 0.5, 1.0, 1.5, 2.0]

@@ -18,12 +18,11 @@
 
 Unlike traditional montage generators that randomly splice clips on arbitrary beat ticks, Balladeer:
 1. **Parallel Batch Vision Indexing:** Ingests media in parallel chunks (up to 25 items/batch) using a multi-tier Google AI Studio model priority waterfall (`Gemini 3.5 Flash Lite` $\rightarrow$ `3.1 Flash Lite` $\rightarrow$ `2.5 Flash Lite` $\rightarrow$ `Gemma 4` $\rightarrow$ Local `Qwen3.5-4B` fallback).
-2. **Google Flow Music & Structured Lyrics:** Optimizes rich musical prompts tailored specifically for **Google Flow Music (MusicFX / Lyria)** and structures 5-act rhyming lyrics (*Verse 1 $\rightarrow$ Chorus $\rightarrow$ Verse 2 $\rightarrow$ Bridge $\rightarrow$ Outro*).
-3. **Optional Local MiniMax 3 Engine:** Provides an on-device synthesis switch for **MiniMax Music 3** executed natively via **Cortiq CMF** with **Vulkan RTX 3070 GPU compute shaders**.
-4. **Isolates Vocals & Tracks Beats:** Uses **Demucs** 2-stem separation and **Librosa** onset beat tracking on uploaded or synthesized audio.
-5. **Phonetic CTC Forced Alignment:** Aligns lyric words to vocals using **TorchAudio MMS_FA** Trellis dynamic programming.
-6. **Solves Media-to-Beat Placement:** Global integer programming optimization solver enforces chronological storytelling, photo/video duration constraints, motion score matching, and recency penalties.
-7. **Hardware Video Compositing:** Renders full HD/4K videos with **FFmpeg NVENC**, blurred background padding for mixed aspect ratios, Ken Burns zoom motion, EBU R128 loudness mastering, and animated **ASS karaoke subtitles**.
+2. **Prompt & Structured Lyrics Generation:** Structures 5-act rhyming lyrics (*Verse 1 $\rightarrow$ Chorus $\rightarrow$ Verse 2 $\rightarrow$ Bridge $\rightarrow$ Outro*) and optimized musical prompts with local **Qwen 2.5** / **Gemini** waterfall.
+3. **Audio Consumption & Beat Synchronization:** Ingests dropped-in audio files, extracts precise beat and downbeat grids with **Librosa**, and separates vocals/backing with **Demucs**.
+4. **Phonetic CTC Forced Alignment:** Aligns lyric words to vocals using **TorchAudio MMS_FA** Trellis dynamic programming.
+5. **Solves Media-to-Beat Placement:** Global integer programming optimization solver enforces chronological storytelling, photo/video duration constraints, motion score matching, and recency penalties.
+6. **Hardware Video Compositing:** Renders full HD/4K videos with **FFmpeg NVENC**, blurred background padding for mixed aspect ratios, Ken Burns zoom motion, EBU R128 loudness mastering, and animated **ASS karaoke subtitles**.
 
 ---
 
@@ -73,8 +72,8 @@ STORY & RHYMING LYRIC WATERFALL (Text Planning & Google Flow Music Prompts)
 ┌────────────────────────────────────────────────────────────────────────┐
 │                      2. MUSIC & LYRIC STUDIO                           │
 │  • Narrative Act Structuring (5 Acts: Verse 1, Chorus, Verse 2, etc.)  │
-│  • Google Flow Music (MusicFX / Lyria) Prompt Optimizer & 1-Click Copy │
-│  • Optional Local MiniMax Music 3 Synthesis (cortiq.exe / Vulkan GPU)  │
+│  • Flow Music / AI Prompt Optimizer & 1-Click Copy                     │
+│  • Qwen 2.5 Local / Cloud Rhyming Lyrics Generation                    │
 │  • Direct Custom Audio Dropzone & External Track Importer              │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
@@ -137,7 +136,7 @@ cd Balladeer
 ```
 
 ### 3. One-Click Launch (Recommended)
-Simply run the startup batch script. It automatically downloads dependencies, sets up the CMF runner, starts the headless engine, launches the FastAPI backend, and spins up the React frontend:
+Simply run the startup batch script. It automatically verifies dependencies, launches the FastAPI backend, and spins up the React frontend:
 
 ```powershell
 .\start_balladeer.bat
@@ -185,40 +184,6 @@ Balladeer includes an extensive test suite covering the entire hybrid model disp
 python -m pytest tests -v
 ```
 
-```
-============================= 30 passed in 40.29s =============================
-tests/test_aligner.py::test_beat_snapping PASSED                         [  3%]
-tests/test_aligner.py::test_music_synthesis_and_beat_extraction PASSED   [  6%]
-tests/test_api.py::test_health_endpoint PASSED                           [ 10%]
-tests/test_api.py::test_project_api_lifecycle PASSED                     [ 13%]
-tests/test_aspect_ratio_and_instrumental.py::test_instrumental_event_cards_subtitles PASSED [ 16%]
-tests/test_aspect_ratio_and_instrumental.py::test_vertical_aspect_ratio_processing PASSED [ 20%]
-tests/test_batch_indexer.py::test_parallel_batch_indexing PASSED         [ 23%]
-tests/test_beat_solver.py::test_beat_solver_config_ranges PASSED         [ 26%]
-tests/test_comfy_worker.py::test_comfy_worker_build_prompt_graph PASSED  [ 30%]
-tests/test_comfy_worker.py::test_comfy_worker_fallback_when_offline PASSED [ 33%]
-tests/test_comfy_worker.py::test_minimax_engine_with_comfy_audio PASSED  [ 36%]
-tests/test_comfy_worker.py::test_minimax_engine_with_cmf_runner_audio PASSED [ 40%]
-tests/test_comfy_worker.py::test_minimax_engine_strict_error_when_all_offline PASSED [ 43%]
-tests/test_compositor.py::test_ass_karaoke_subtitle_generation PASSED    [ 46%]
-tests/test_compositor.py::test_blurred_background_fill PASSED            [ 50%]
-tests/test_config.py::test_config_defaults PASSED                        [ 53%]
-tests/test_database.py::test_database_lifecycle PASSED                   [ 56%]
-tests/test_model_router.py::test_model_quota_sliding_window PASSED       [ 60%]
-tests/test_model_router.py::test_model_router_waterfall_fallback PASSED  [ 63%]
-tests/test_model_router.py::test_model_router_only_local_ai_mode PASSED  [ 66%]
-tests/test_model_wrappers.py::test_qwen_vlm_heuristic PASSED             [ 70%]
-tests/test_model_wrappers.py::test_minimax_music_engine PASSED           [ 73%]
-tests/test_model_wrappers.py::test_mms_aligner PASSED                    [ 76%]
-tests/test_models_api.py::test_models_status_api PASSED                  [ 80%]
-tests/test_models_api.py::test_model_download_trigger_api PASSED         [ 83%]
-tests/test_settings_api.py::test_settings_api_lifecycle PASSED           [ 86%]
-tests/test_split_and_reorder.py::test_split_and_reorder_api PASSED       [ 90%]
-tests/test_system_api.py::test_shutdown_endpoint PASSED                  [ 93%]
-tests/test_upload_video_foreign_key.py::test_video_indexing_foreign_key_integrity PASSED [ 96%]
-tests/test_video_segments.py::test_video_subsegments_extraction PASSED   [100%]
-```
-
 ---
 
 ## 📁 Repository Structure
@@ -232,16 +197,14 @@ Balladeer/
 │   ├── models/               # Model inference runners & dispatchers
 │   │   ├── model_router.py   # Intelligent Multi-Tier Model Dispatcher & Quota Tracker
 │   │   ├── gemini_client.py  # Google AI Studio Free Tier API client (Gemini & Gemma)
-│   │   ├── qwen_vlm.py       # Qwen3.5-4B-GGUF local VLM runner & heuristic scorer
-│   │   ├── minimax_music.py  # MiniMax Music 3 synthesis engine
-│   │   ├── cmf_runner.py     # Cortiq CMF MiniMax Music 3 native runner (Vulkan GPU)
-│   │   ├── comfy_music_worker.py # Headless ComfyUI worker interface
+│   │   ├── qwen_vlm.py       # Qwen VLM local runner & heuristic scorer
+│   │   ├── qwen_llm.py       # Qwen LLM local narrative & lyrics generator
 │   │   ├── siglip_embedder.py # SigLIP 2 Base vector embeddings (768-dim FP16)
 │   │   ├── demucs_separator.py # Demucs audio stem separation
 │   │   └── mms_aligner.py    # TorchAudio MMS_FA forced alignment & beat snapper
 │   ├── pipeline/             # Core processing phases
 │   │   ├── indexer.py        # Parallel batch ingestion, EXIF, scene cuts & VLM tagging
-│   │   ├── music_gen.py      # Google Flow Music prompt optimization & rhyming lyrics
+│   │   ├── music_gen.py      # Music prompt optimization, rhyming lyrics & harmonic preview
 │   │   ├── aligner.py        # Stem demixing, Librosa beats & phonetic alignment
 │   │   ├── beat_solver.py    # Global constraint-based media placement solver
 │   │   └── compositor.py     # FFmpeg NVENC compositing, blurred fill & ASS karaoke
@@ -252,9 +215,8 @@ Balladeer/
 │   │   ├── App.jsx           # Main state orchestrator & SSE progress listener
 │   │   └── index.css         # Glassmorphism design system
 │   └── package.json
-├── tools/                    # Local native binaries (cortiq.exe)
 ├── scripts/                  # Model downloaders and utility scripts
-├── tests/                    # 30 automated unit and integration tests
+├── tests/                    # Automated unit and integration tests
 ├── start_balladeer.bat       # One-click Windows startup script
 ├── status.md                 # Project status & architectural breakdown
 ├── todo.md                   # Roadmap & optimizations
@@ -273,10 +235,10 @@ hardware:
   max_vram_gb: 8.0
 
 indexing:
-  vlm_model: "unsloth/Qwen3.5-4B-GGUF"
+  vlm_model: "Qwen/Qwen2.5-VL-3B-Instruct"
   quality_threshold: 6.0
   scene_detection_threshold: 0.3
-  batch_size: 20
+  batch_size: 8
 
 google_ai:
   api_key: ""                 # Can also be set in .env or via the web UI
@@ -285,11 +247,11 @@ google_ai:
   enable_cloud_waterfall: true
 
 audio:
-  music_model: "infosave/MiniMax-Music-3-cmf"
-  cmf_filename: "minimax-music3-q4tp.cmf"
   sample_rate: 32000
   beat_snap_tolerance_sec: 0.25
-  enable_local_synthesis: false # Fast preview & Google Flow Music prompt workflow by default
+  default_tempo_bpm: 120.0
+  demucs_model: "htdemucs"
+  alignment_model: "MMS_FA"
 
 video:
   resolution: [1920, 1080]

@@ -58,11 +58,10 @@ Balladeer is a high-performance hybrid AI video montage engine that transforms t
   * *Act 3:* Verse 2 (Exploration & key events)
   * *Act 4:* Verse 3 / Bridge (Climax & travel highlights)
   * *Act 5:* Outro (Departure, reflection, & concluding memory)
-* **Google Flow Music (MusicFX / Lyria) Prompt Optimizer:** Generates highly refined, evocative music prompts detailing genre, instrumentation, tempo (BPM), vocal mood, and texture with 1-click copy buttons.
-* **5-Act Structured Rhyming Lyrics:** Generates rhythmic, rhyming lyrics formatted for musical beat alignment.
-* **Official Cortiq / CMF Native Runner (`cortiq.exe music`):**
-  * Optional switch for native Cortiq CMF synthesis on RTX 3070 Vulkan GPU compute shaders (`minimax-music3-q4tp.cmf`).
-* **Custom Audio Importer:** Direct drag-and-drop audio uploader allowing users to import high-fidelity tracks generated in Google Flow Music, automatically triggering stem demixing and beat alignment.
+* **Google Flow Music / AI Prompt Optimizer:** Generates highly refined, evocative music prompts detailing genre, instrumentation, tempo (BPM), vocal mood, and texture with 1-click copy buttons.
+* **5-Act Structured Rhyming Lyrics:** Generates rhythmic, rhyming lyrics formatted for musical beat alignment using Qwen 2.5 LLM / Gemini waterfall.
+* **Instant Beat-Aligned Harmonic Preview:** Fast synthetic audio synthesis for immediate timeline playback and editing.
+* **Custom Audio Importer:** Direct drag-and-drop audio uploader allowing users to import high-fidelity tracks, automatically triggering stem demixing, beat detection, and phonetic lyrics alignment.
 
 ---
 
@@ -119,11 +118,6 @@ tests/test_auto_draft_and_approval.py::test_defer_relevance_until_approved PASSE
 tests/test_batch_indexer.py::test_parallel_batch_indexing PASSED         [ 20%]
 tests/test_batch_indexer.py::test_two_step_media_indexing_and_user_editing PASSED [ 22%]
 tests/test_beat_solver.py::test_beat_solver_config_ranges PASSED         [ 24%]
-tests/test_comfy_worker.py::test_comfy_worker_build_prompt_graph PASSED  [ 26%]
-tests/test_comfy_worker.py::test_comfy_worker_fallback_when_offline PASSED [ 28%]
-tests/test_comfy_worker.py::test_minimax_engine_with_comfy_audio PASSED  [ 30%]
-tests/test_comfy_worker.py::test_minimax_engine_with_cmf_runner_audio PASSED [ 32%]
-tests/test_comfy_worker.py::test_minimax_engine_strict_error_when_all_offline PASSED [ 34%]
 tests/test_compositor.py::test_ass_karaoke_subtitle_generation PASSED    [ 36%]
 tests/test_compositor.py::test_blurred_background_fill PASSED            [ 38%]
 tests/test_config.py::test_config_defaults PASSED                        [ 40%]
@@ -139,7 +133,6 @@ tests/test_model_router.py::test_model_router_only_local_ai_mode PASSED  [ 58%]
 tests/test_model_wrappers.py::test_qwen_vlm_heuristic PASSED             [ 60%]
 tests/test_model_wrappers.py::test_qwen_vlm_markdown_fenced_json PASSED  [ 62%]
 tests/test_model_wrappers.py::test_qwen_vlm_malformed_fence_fallback PASSED [ 64%]
-tests/test_model_wrappers.py::test_minimax_music_engine PASSED           [ 66%]
 tests/test_model_wrappers.py::test_mms_aligner PASSED                    [ 68%]
 tests/test_models_api.py::test_models_status_api PASSED                  [ 70%]
 tests/test_models_api.py::test_model_download_trigger_api PASSED         [ 72%]

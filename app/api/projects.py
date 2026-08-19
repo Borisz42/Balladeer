@@ -65,7 +65,6 @@ class GenerateMusicRequest(BaseModel):
     bpm: Optional[float] = 120.0
     duration_sec: Optional[float] = 30.0
     is_instrumental: Optional[bool] = False
-    enable_local_synthesis: Optional[bool] = False
 
 class UpdateAssetRequest(BaseModel):
     caption: Optional[str] = None
@@ -575,7 +574,6 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
             bpm=bpm,
             target_duration_sec=duration,
             is_instrumental=req.is_instrumental,
-            enable_local_synthesis=bool(req.enable_local_synthesis),
             progress_callback=on_synth_progress
         )
 

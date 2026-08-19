@@ -90,7 +90,7 @@ def download_model(model_name: str, dest_dir: Path, token: str = None) -> bool:
             logger.warning(f"Demucs fetch note: {e}")
 
     else:
-        # Qwen VLM (GGUF Q4_K_M + mmproj) / MiniMax Music 3 CMF (~6GB)
+        # Qwen VLM (GGUF Q4_K_M + mmproj / Safetensors) (~2-3GB)
         try:
             from huggingface_hub import snapshot_download
             hf_token = token or os.environ.get("HF_TOKEN")

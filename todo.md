@@ -87,11 +87,11 @@ This document outlines completed milestones, upcoming improvements, technical op
 
 ## 3. Audio & Music Engine Optimizations
 
-### 3.1 MiniMax Music 3 Autoregressive Token Generation Speedup
-* **Description:** In `minimax-music3-q4tp.cmf`, the 8-step latent diffusion and vocoder stages run rapidly on the RTX 3070 GPU via Vulkan shaders. The autoregressive sequence generation stage (`ar 1/750`) is CPU-bound.
+### 3.1 Fast Local Lyrics & Prompt Generation Enhancements
+* **Description:** Optimize local Qwen 2.5 LLM prompt structuring and 5-act rhyming lyrics generation with rich musical style descriptors and meter constraints.
 * **Proposed Implementation:**
-  * Benchmark newer Cortiq/CMF upstream binary releases (`infosave2007/cmf`) as GPU kernel support for the autoregressive transformer layers matures.
-  * Implement an automatic duration recommender (e.g. defaulting to 10s or 15s for quick iterations, 30s for final master rendering).
+  * Benchmark quantization settings (NF4 vs FP16) for Qwen 2.5 LLM story & lyrics generation.
+  * Provide customizable syllable-matching constraints for specific meter styles.
 
 ### 3.2 User-Selectable Musical Genre & Mood Presets
 * **Description:** Allow users to choose from a curated set of acoustic, cinematic, lo-fi, EDM, orchestral, or rock style presets in the Music Studio UI rather than typing prompts manually.
@@ -99,10 +99,10 @@ This document outlines completed milestones, upcoming improvements, technical op
   * Add preset buttons in `web/src/components/MusicStudio.jsx` (e.g., *"Japanese Lo-Fi Acoustic"*, *"Cinematic Travel Trailer"*, *"Upbeat Summer Pop"*, *"Epic Orchestral Journey"*).
   * Automatically inject mood tags and BPM constraints into the narrative prompt generator.
 
-### 3.3 Custom Vocal Timbre & Reference Voice Cloning
-* **Description:** Allow users to upload a 5-second clean voice audio reference (`reference_voice.wav`) so that the AI singing vocals match the user's timbre.
+### 3.3 Enhanced Vocal Stem Separation & Alignment Quality
+* **Description:** Improve alignment accuracy on complex polyphonic music or low vocal level tracks.
 * **Proposed Implementation:**
-  * Pass `--reference-audio` into the CMF runner or ComfyUI vocal conditioner when the feature is enabled.
+  * Fine-tune Demucs 2-stem thresholding for acoustic vocal mixes before passing to MMS_FA.
 
 ---
 
@@ -147,7 +147,7 @@ This document outlines completed milestones, upcoming improvements, technical op
 ### 6.1 One-Click Windows Installer / Portable Executable
 * **Description:** Package Balladeer with embedded Python and pre-compiled binaries into a single portable `.exe` or desktop installer.
 * **Proposed Implementation:**
-  * Use PyInstaller / Inno Setup to bundle FastAPI, React static dist, FFmpeg, and `cortiq.exe` into a single standalone distribution folder.
+  * Use PyInstaller / Inno Setup to bundle FastAPI, React static dist, and FFmpeg into a single standalone distribution folder.
 
 ### 6.2 Automated Model Weight Verification on Startup
-* **Description:** Run a quick health check on application start to verify that `minimax-music3-q4tp.cmf`, `Qwen3.5-4B-Q4_K_M.gguf`, and `Qwen3.5-9B-Q4_K_M.gguf` file sizes and hashes match official releases, notifying the user immediately if weights are corrupted or incomplete.
+* **Description:** Run a quick health check on application start to verify that Qwen 2.5 VLM/LLM, SigLIP 2, Demucs, and MMS_FA checkpoint files match official releases.

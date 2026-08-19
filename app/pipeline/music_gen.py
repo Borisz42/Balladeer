@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 class MusicGenerator:
     """
-    Phase 2: Narrative Act Structuring, Google Flow Music (MusicFX / Lyria) Prompt Optimization,
-    Rhyming Lyrics Generation, and Optional Local MiniMax Music 3 Synthesis.
+    Phase 2: Narrative Act Structuring, Music Prompt Optimization,
+    Rhyming Lyrics Generation via Qwen 2.5 LLM / Gemini, and Preview Audio Synthesis.
     """
 
     def __init__(self):
@@ -195,7 +195,6 @@ class MusicGenerator:
         bpm: float = 120.0,
         target_duration_sec: float = 15.0,
         is_instrumental: bool = False,
-        enable_local_synthesis: bool = False,
         progress_callback: Optional[Callable[[str, float], None]] = None
     ) -> Dict[str, Path]:
         """

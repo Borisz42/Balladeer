@@ -22,20 +22,11 @@ google_ai:
   enable_cloud_waterfall: true
 
 audio:
-  music_model: "infosave/MiniMax-Music-3-cmf"
-  cmf_filename: "minimax-music3-q4tp.cmf"
   sample_rate: 32000
   beat_snap_tolerance_sec: 0.25
   default_tempo_bpm: 120.0
   demucs_model: "htdemucs"
   alignment_model: "MMS_FA"
-  enable_local_synthesis: false
-
-comfyui:
-  host: "127.0.0.1"
-  port: 8188
-  auto_launch: false
-  model_path: "data/weights/minimax-music3/minimax-music3-q4tp.cmf"
 
 video:
   resolution: [1920, 1080]

@@ -32,15 +32,11 @@ wheels/
 *~
 .DS_Store
 
-# ComfyUI & Local AI Tools (Never commit local clones or portable environments)
-ComfyUI/
-ComfyUI_windows_portable/
-tools/ComfyUI/
+# Local AI Tools & Checkpoints
 .installed
 
 # Large AI Model Weights & Checkpoints (Never commit large AI files)
 *.gguf
-*.cmf
 *.bin
 *.safetensors
 *.pt
