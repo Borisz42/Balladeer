@@ -17,22 +17,12 @@
 **Balladeer** transforms raw vacation photo dumps, video clips, and trip diary logs into cohesive, beat-accurate music video montages with custom AI-composed songs.
 
 Unlike traditional montage generators that randomly splice clips on arbitrary beat ticks, Balladeer:
-<<<<<<< HEAD
 1. **Parallel Batch Vision Indexing:** Ingests media in parallel chunks (up to 25 items/batch) using a multi-tier Google AI Studio model priority waterfall (`Gemini 3.5 Flash Lite` $\rightarrow$ `3.1 Flash Lite` $\rightarrow$ `2.5 Flash Lite` $\rightarrow$ `Gemma 4` $\rightarrow$ Local `Qwen3.5-4B` fallback).
 2. **Prompt & Structured Lyrics Generation:** Structures 5-act rhyming lyrics (*Verse 1 $\rightarrow$ Chorus $\rightarrow$ Verse 2 $\rightarrow$ Bridge $\rightarrow$ Outro*) and optimized musical prompts with local **Qwen 2.5** / **Gemini** waterfall.
 3. **Audio Consumption & Beat Synchronization:** Ingests dropped-in audio files, extracts precise beat and downbeat grids with **Librosa**, and separates vocals/backing with **Demucs**.
 4. **Phonetic CTC Forced Alignment:** Aligns lyric words to vocals using **TorchAudio MMS_FA** Trellis dynamic programming.
 5. **Solves Media-to-Beat Placement:** Global integer programming optimization solver enforces chronological storytelling, photo/video duration constraints, motion score matching, and recency penalties.
 6. **Hardware Video Compositing:** Renders full HD/4K videos with **FFmpeg NVENC**, blurred background padding for mixed aspect ratios, Ken Burns zoom motion, EBU R128 loudness mastering, and animated **ASS karaoke subtitles**.
-=======
-1. **Parallel Batch Vision Indexing:** Ingests media in parallel chunks (up to 25 items/batch) using a multi-tier Google AI Studio model priority waterfall (`Gemini 3.5 Flash Lite` $\rightarrow$ `3.1 Flash Lite` $\rightarrow$ `2.5 Flash Lite` $\rightarrow$ `Gemma 4` $\rightarrow$ Local `Qwen 2.5 VL` fallback).
-2. **Google Flow Music & Structured Lyrics:** Optimizes rich musical prompts tailored specifically for **Google Flow Music (MusicFX / Lyria)** and structures 5-act rhyming lyrics (*Verse 1 $\rightarrow$ Chorus $\rightarrow$ Verse 2 $\rightarrow$ Bridge $\rightarrow$ Outro*).
-3. **Optional Local MiniMax 3 Engine:** Provides an on-device synthesis switch for **MiniMax Music 3** executed natively via **Cortiq CMF** with **Vulkan RTX 3070 GPU compute shaders**.
-4. **Isolates Vocals & Tracks Beats:** Uses **Demucs** 2-stem separation and **Librosa** onset beat tracking on uploaded or synthesized audio.
-5. **Phonetic CTC Forced Alignment:** Aligns lyric words to vocals using **TorchAudio MMS_FA** Trellis dynamic programming.
-6. **Solves Media-to-Beat Placement:** Global integer programming optimization solver enforces chronological storytelling, photo/video duration constraints, motion score matching, and recency penalties.
-7. **Hardware Video Compositing:** Renders full HD/4K videos with **FFmpeg NVENC**, blurred background padding for mixed aspect ratios, Ken Burns zoom motion, EBU R128 loudness mastering, and animated **ASS karaoke subtitles**.
->>>>>>> remove_qwen3_5_refactor
 
 ---
 
