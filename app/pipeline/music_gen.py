@@ -221,6 +221,8 @@ class MusicGenerator:
             d_num = d_stat["day_number"]
             dur = d_stat["section_duration_sec"]
             d_title = d_stat["title"]
+            if " & " in d_title or not d_title or d_title.lower() in ("travel scene", "untitled"):
+                d_title = f"Day {d_num}"
             events_summary = d_stat["events"].strip().split("\n")[0] if d_stat["events"] else f"Adventures of Day {d_num}"
 
             acts.append({
@@ -569,37 +571,89 @@ class MusicGenerator:
 
         return cleaned
 
+    def _check_rhyme_pair(self, l1: str, l2: str) -> bool:
+        """Verifies that two lines end in a genuine rhyming pair and do not repeat the same word."""
+        if not l1 or not l2:
+            return False
+        w1 = re.sub(r'[^a-z]', '', l1.split()[-1].lower()) if l1.split() else ''
+        w2 = re.sub(r'[^a-z]', '', l2.split()[-1].lower()) if l2.split() else ''
+        if not w1 or not w2 or w1 == w2:
+            return False
+        if len(w1) >= 3 and len(w2) >= 3 and w1[-3:] == w2[-3:]:
+            return True
+        if len(w1) >= 2 and len(w2) >= 2 and w1[-2:] == w2[-2:] and w1[-2:] in {
+            "ay", "ee", "ey", "ow", "un", "in", "it", "at", "et", "op", "ip", "og", "ug", "ue", "ew", "oy", "ar", "or", "ur"
+        }:
+            return True
+        phonetic_pairs = {
+            ("sky", "high"), ("fly", "high"), ("eye", "sky"), ("eyes", "skies"),
+            ("view", "through"), ("blue", "through"), ("new", "view"), ("blue", "new"),
+            ("air", "share"), ("there", "fair"), ("where", "there"), ("care", "share"),
+            ("time", "rhyme"), ("shine", "fine"), ("grace", "place"), ("trace", "space"),
+            ("town", "around"), ("town", "down"), ("sound", "ground"), ("bound", "found"),
+            ("glow", "slow"), ("glow", "know"), ("night", "sight"), ("day", "away"),
+            ("clear", "near"), ("dear", "here"), ("stroll", "soul"), ("stroll", "whole")
+        }
+        return (w1, w2) in phonetic_pairs or (w2, w1) in phonetic_pairs
+
+    def _format_subtitles_into_short_lines(self, text: str, words_per_line: int = 11) -> str:
+        """Formats long spoken subtitle paragraphs into natural, clean 1-2 sentence lines without run-ons."""
+        if not text:
+            return ""
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+        lines = []
+        for s in sentences:
+            words = s.split()
+            if len(words) <= words_per_line + 3:
+                lines.append(s)
+            else:
+                # Split long sentences cleanly at commas or mid-point
+                clauses = [c.strip() for c in re.split(r"[,;—–\-]\s*", s) if c.strip()]
+                if len(clauses) >= 2:
+                    lines.append(", ".join(clauses[:len(clauses)//2]) + ",")
+                    lines.append(", ".join(clauses[len(clauses)//2:]))
+                else:
+                    mid = len(words) // 2
+                    lines.append(" ".join(words[:mid]))
+                    lines.append(" ".join(words[mid:]))
+        return "\n".join(lines)
+
     def _create_fallback_rhyming_verse(self, act: Dict[str, Any], verse_idx: int, dur: float) -> List[str]:
         """Synthesizes high-quality, evocative rhyming lyric lines for a travel verse."""
         day_num = act.get("day_number") or (verse_idx + 1)
         title = act.get("title") or f"Day {day_num}"
         if " & " in title:
             title = f"Day {day_num}"
+
+        act_text = " ".join(act.get("lines", []))
+        loc_name = title if title.lower() not in ("day 1", "day 2", "day 3", "verse 1", "verse 2") else "the morning streets"
+        if "pré-saint-gervais" in act_text.lower() or "paris" in act_text.lower():
+            loc_name = "Le Pré-Saint-Gervais"
             
         rhyme_sets = [
             [
-                f"Stepping out into {title} in the golden morning light",
-                "Watching all the vibrant scenes and colors shining bright",
-                "Every single photograph a memory we will hold",
-                "Dancing down the open path as stories all unfold"
+                f"Stepping into {loc_name} in the golden morning light",
+                "Watching all the quiet streets and colors shining bright",
+                "Past the towers on the skyline and the murals on the wall",
+                "Finding wonder in the beauty as the summer shadows fall"
             ],
             [
-                f"Walking through the city streets with wonder in our eyes",
-                "Chasing every hidden gem across the sunny skies",
-                "Footsteps on the cobblestone and music in the air",
+                f"Walking through {loc_name} with excitement in our eyes",
+                "Chasing every hidden gem beneath the sunny skies",
+                "Footsteps on the cobblestones and music in the air",
                 "Capturing the magic in the moments that we share"
             ],
             [
-                f"Another golden chapter as the journey starts to turn",
-                "Every single joyful sight a memory to learn",
-                "Sunset softly painted on the skyline up ahead",
-                "Following the wondrous path where all our dreams are led"
+                f"Another golden chapter as we wander down the way",
+                "Treasuring the lively sights and spirit of the day",
+                "Sunset softly painted on the rooftops up ahead",
+                "Following the open path where all our dreams are led"
             ],
             [
-                f"Memories of laughter underneath the canopy",
+                "Memories of laughter underneath the canopy",
                 "Moments that will stay with us for all of time to be",
                 "Smiling at the little things we discovered on the way",
-                "Treasuring the beauty of another perfect day"
+                "Celebrating memories from another perfect day"
             ]
         ]
         
@@ -743,28 +797,52 @@ class MusicGenerator:
 
         # Extract textual blocks/lines from raw_lyrics
         clean_raw = re.sub(r"\[music prompt\].*$", "", raw_lyrics, flags=re.IGNORECASE | re.DOTALL).strip()
-        raw_blocks = [b.strip() for b in clean_raw.split("\n\n") if b.strip()]
-        
-        # Extract lines per section by looking for headers or splitting lines
-        extracted_verse_lines: List[List[str]] = []
-        for block in raw_blocks:
-            lines = [l.strip() for l in block.split("\n") if l.strip()]
-            cleaned_body = []
-            for l in lines:
-                c_line = self._clean_and_filter_lyric_line(l, known_titles)
-                if c_line:
-                    cleaned_body.append(c_line)
-            if cleaned_body:
-                extracted_verse_lines.append(cleaned_body)
+
+        # Parse sections by header tags: e.g. [0:00-0:04] [Intro] or [Verse 1]
+        header_pattern = r"(?:^|\n)\s*(\[\d+:\d+-\d+:\d+\]\s*\[[^\]]+\]|\b(?:Verse\s*\d*|Chorus|Intro|Outro|Bridge)\b[^\n]*)\s*\n"
+        splits = re.split(header_pattern, clean_raw, flags=re.IGNORECASE)
+
+        named_sections: Dict[str, List[str]] = {}
+        unnamed_blocks: List[List[str]] = []
+
+        if len(splits) > 1:
+            for i in range(1, len(splits), 2):
+                hdr = splits[i].strip().lower()
+                body = splits[i + 1].strip() if i + 1 < len(splits) else ""
+                lines = [self._clean_and_filter_lyric_line(l, known_titles) for l in body.split("\n") if l.strip()]
+                clean_lines = [l for l in lines if l]
+                if clean_lines:
+                    if "intro" in hdr:
+                        named_sections["intro"] = clean_lines
+                    elif "outro" in hdr:
+                        named_sections["outro"] = clean_lines
+                    elif "verse 1" in hdr or "day 1" in hdr:
+                        named_sections["verse 1"] = clean_lines
+                    elif "verse 2" in hdr or "day 2" in hdr:
+                        named_sections["verse 2"] = clean_lines
+                    elif "verse 3" in hdr or "day 3" in hdr:
+                        named_sections["verse 3"] = clean_lines
+                    elif "chorus" in hdr:
+                        named_sections["chorus"] = clean_lines
+                    else:
+                        unnamed_blocks.append(clean_lines)
+        else:
+            # Fallback for plain blocks without headers
+            raw_blocks = [b.strip() for b in clean_raw.split("\n\n") if b.strip()]
+            for block in raw_blocks:
+                lines = [l.strip() for l in block.split("\n") if l.strip()]
+                clean_lines = [self._clean_and_filter_lyric_line(l, known_titles) for l in lines]
+                clean_lines = [l for l in clean_lines if l]
+                if clean_lines:
+                    unnamed_blocks.append(clean_lines)
 
         # Build clean, strictly timed output blocks matching acts
         output_blocks = []
-        vocal_block_idx = 0
-
         for act_idx, act in enumerate(acts):
             s_sec = int(act.get("start_sec", 0))
             e_sec = int(act.get("end_sec", 0))
             act_type = act.get("act_type", "Section")
+            act_key = act_type.lower()
             d_title = act.get("title", "")
             
             # Clean title if it contains raw & joined tags
@@ -777,56 +855,48 @@ class MusicGenerator:
 
             if is_instrumental:
                 # Timed spoken narrative subtitles for instrumental mode
-                narration_text = ""
+                candidate_lines = named_sections.get(act_key) or (unnamed_blocks.pop(0) if unnamed_blocks else [])
+                joined = " ".join(candidate_lines) if candidate_lines else ""
+                joined = re.sub(r"\[.*?\]", "", joined).strip()
                 min_words_for_dur = 5 if dur <= 5.0 else max(16, int(dur * 1.6))
 
-                if vocal_block_idx < len(extracted_verse_lines):
-                    candidate_lines = extracted_verse_lines[vocal_block_idx]
-                    vocal_block_idx += 1
-                    joined = " ".join(candidate_lines)
-                    joined = re.sub(r"\[.*?\]", "", joined).strip()
-
-                    if len(joined.split()) >= min_words_for_dur:
-                        narration_text = self._trim_narration_to_complete_sentences(joined, dur, act_type)
-                    elif len(joined.split()) >= 4 and dur > 5.0:
-                        # Combine with rich contextual narration to reach full spoken word count for duration
-                        fb = self._create_fallback_narration_subtitles(act, act_idx, dur)
-                        combined_text = f"{joined} {fb}"
-                        narration_text = self._trim_narration_to_complete_sentences(combined_text, dur, act_type)
-
-                if not narration_text:
+                if len(joined.split()) >= min_words_for_dur:
+                    narration_text = self._trim_narration_to_complete_sentences(joined, dur, act_type)
+                elif len(joined.split()) >= 4 and dur > 5.0:
+                    fb = self._create_fallback_narration_subtitles(act, act_idx, dur)
+                    combined_text = f"{joined} {fb}"
+                    narration_text = self._trim_narration_to_complete_sentences(combined_text, dur, act_type)
+                else:
                     narration_text = self._create_fallback_narration_subtitles(act, act_idx, dur)
 
-                output_blocks.append(f"{tag}\n{narration_text}")
+                formatted_subs = self._format_subtitles_into_short_lines(narration_text)
+                output_blocks.append(f"{tag}\n{formatted_subs}")
             elif act.get("is_instrumental"):
                 summary = act.get("directions") or "Atmospheric acoustic guitar swell"
                 clean_dir = re.sub(r"^[0-9\-\.\*]+\s*", "", summary).strip()
                 clean_dir = re.sub(r"[*`#]+", "", clean_dir).strip()
                 output_blocks.append(f"{tag}\n[Instrumental - {clean_dir}]")
             else:
-                lines_to_use = []
-                if vocal_block_idx < len(extracted_verse_lines):
-                    lines_to_use = extracted_verse_lines[vocal_block_idx]
-                    vocal_block_idx += 1
-
+                candidate_lines = named_sections.get(act_key) or (unnamed_blocks.pop(0) if unnamed_blocks else [])
                 target_lines = 4 if dur >= 14.0 else 2
-                formatted = []
-                for l in lines_to_use:
-                    c_line = self._clean_and_filter_lyric_line(l, known_titles) or l
-                    if c_line and not c_line.startswith("["):
-                        formatted.append(c_line)
-                    if len(formatted) == target_lines:
+
+                verified_lines = []
+                # Check candidate rhyming lines
+                for idx in range(0, len(candidate_lines) - 1, 2):
+                    l1, l2 = candidate_lines[idx], candidate_lines[idx + 1]
+                    if self._check_rhyme_pair(l1, l2):
+                        verified_lines.extend([l1, l2])
+                    if len(verified_lines) == target_lines:
                         break
 
-                # If fewer than target_lines exist, complete or fallback to curated rhyming verses
-                if len(formatted) < target_lines:
-                    fallback_lines = self._create_fallback_rhyming_verse(act, vocal_block_idx, dur)
-                    if len(formatted) == 2 and target_lines == 4:
-                        formatted.extend(fallback_lines[2:4] if len(fallback_lines) >= 4 else fallback_lines[:2])
+                if len(verified_lines) < target_lines:
+                    fallback_lines = self._create_fallback_rhyming_verse(act, act_idx, dur)
+                    if len(verified_lines) == 2 and target_lines == 4:
+                        verified_lines.extend(fallback_lines[2:4] if len(fallback_lines) >= 4 else fallback_lines[:2])
                     else:
-                        formatted = fallback_lines[:target_lines]
+                        verified_lines = fallback_lines[:target_lines]
 
-                output_blocks.append(tag + "\n" + "\n".join(formatted))
+                output_blocks.append(tag + "\n" + "\n".join(verified_lines))
 
         return "\n\n".join(output_blocks)
 

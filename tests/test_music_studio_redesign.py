@@ -355,6 +355,50 @@ def test_enforce_acts_timeline_instrumental_expands_short_sentences():
     assert len(words) <= 55
     assert verse_block.endswith(".")
 
+def test_enforce_acts_timeline_checks_rhyme_and_rejects_identical_endwords():
+    acts = [
+        {"act_type": "Intro", "title": "Acoustic Intro Swell", "start_sec": 0.0, "end_sec": 4.0, "duration_sec": 4.0, "is_instrumental": True},
+        {"act_type": "Verse 1", "title": "Day 1", "start_sec": 4.0, "end_sec": 21.0, "duration_sec": 17.0, "is_instrumental": False},
+        {"act_type": "Outro", "title": "Acoustic Outro Fade", "start_sec": 21.0, "end_sec": 26.0, "duration_sec": 5.0, "is_instrumental": True}
+    ]
+
+    # Simulating LLM repeating the same word 'meet' / 'meet' or non-rhyming pairs
+    raw_bad_rhyme = (
+        "[0:00-0:04] [Intro: Acoustic Intro Swell] (4s)\n"
+        "[Instrumental - Acoustic guitar build]\n\n"
+        "[0:04-0:21] [Verse 1: Day 1] (17s)\n"
+        "In the morning light we take a stroll\n"
+        "A destination that frees the soul\n"
+        "A path unfolds where cobblestones meet\n"
+        "Underneath the blue sky where memories meet\n\n"
+        "[0:21-0:26] [Outro: Acoustic Outro Fade] (5s)\n"
+        "[Instrumental - Acoustic guitar fade-out]"
+    )
+
+    clean_lyrics = music_gen.enforce_acts_timeline_on_lyrics(acts, raw_bad_rhyme, is_instrumental=False)
+    verse_block = clean_lyrics.split("[0:04-0:21] [Verse 1: Day 1] (17s)\n")[1].split("\n\n")[0]
+    lines = [l.strip() for l in verse_block.split("\n") if l.strip()]
+    assert len(lines) == 4
+    # The repeated 'meet' / 'meet' line pair must be fixed so line 3 and line 4 end in distinct rhyming words
+    last_word_3 = lines[2].split()[-1].lower().rstrip(".,;:!?")
+    last_word_4 = lines[3].split()[-1].lower().rstrip(".,;:!?")
+    assert last_word_3 != last_word_4
+
+def test_enforce_acts_timeline_instrumental_subtitle_line_breaks():
+    acts = [
+        {"act_type": "Intro", "title": "Intro", "start_sec": 0.0, "end_sec": 4.0, "duration_sec": 4.0},
+        {"act_type": "Verse 1", "title": "Day 1", "start_sec": 4.0, "end_sec": 22.0, "duration_sec": 18.0},
+        {"act_type": "Outro", "title": "Outro", "start_sec": 22.0, "end_sec": 26.0, "duration_sec": 4.0}
+    ]
+
+    clean_subs = music_gen.enforce_acts_timeline_on_lyrics(acts, "", is_instrumental=True)
+    verse_block = clean_subs.split("[0:04-0:22] [Verse 1: Day 1] (18s)\n")[1].split("\n\n")[0]
+    # Subtitles must be broken into readable lines, each <= 16 words
+    sub_lines = [l for l in verse_block.split("\n") if l.strip()]
+    assert len(sub_lines) >= 2
+    for l in sub_lines:
+        assert len(l.split()) <= 16
+
 
 
 
