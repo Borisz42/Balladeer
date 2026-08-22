@@ -227,6 +227,7 @@ class MusicGenerator:
 
             acts.append({
                 "act_type": f"Verse {i + 1}",
+                "day": d_num,
                 "day_number": d_num,
                 "title": d_title,
                 "start_sec": round(current_time, 1),
@@ -243,6 +244,7 @@ class MusicGenerator:
                 chorus_dur = 7.5
                 acts.append({
                     "act_type": "Chorus",
+                    "day": None,
                     "day_number": None,
                     "title": "Chorus Hook",
                     "start_sec": round(current_time, 1),
@@ -253,7 +255,7 @@ class MusicGenerator:
                         "Chasing the light across the open sky",
                         "Every moment flying by, memories held high"
                     ],
-                    "directions": "Catchy melodic vocal hook with driving beat."
+                    "directions": "Uplifting chorus with dynamic energy."
                 })
                 current_time += chorus_dur
 
@@ -331,6 +333,7 @@ class MusicGenerator:
                     dur = 10.0
                     acts.append({
                         "act_type": act_name,
+                        "day": d.get("day_number", i + 1),
                         "day_number": d.get("day_number", i + 1),
                         "title": d.get("title", f"Day {d.get('day_number', i+1)}"),
                         "start_sec": cur_t,
@@ -345,6 +348,7 @@ class MusicGenerator:
                     if i == 0 and len(active_days) >= 2:
                         acts.append({
                             "act_type": "Chorus",
+                            "day": None,
                             "day_number": None,
                             "title": "Chorus Hook",
                             "start_sec": cur_t,
@@ -358,6 +362,7 @@ class MusicGenerator:
 
                 acts.append({
                     "act_type": "Outro",
+                    "day": None,
                     "day_number": None,
                     "title": "Outro",
                     "start_sec": cur_t,
@@ -395,6 +400,7 @@ class MusicGenerator:
                 day_counter = int(day_match.group(1))
                 current_act = {
                     "act_type": f"Verse {len(acts)}",
+                    "day": day_counter,
                     "day_number": day_counter,
                     "duration_sec": 10.0,
                     "lines": [line]
@@ -408,6 +414,7 @@ class MusicGenerator:
         if len(acts) >= 3:
             acts.insert(2, {
                 "act_type": "Chorus",
+                "day": None,
                 "day_number": None,
                 "duration_sec": 8.0,
                 "lines": ["Chasing the light across the open sky", "Every moment flying by"]
@@ -415,6 +422,7 @@ class MusicGenerator:
 
         acts.append({
             "act_type": "Outro",
+            "day": None,
             "day_number": None,
             "duration_sec": 4.0,
             "is_instrumental": True,

@@ -28,7 +28,7 @@ def test_local_vlm_draft_travel_log():
 
 
 def test_local_vlm_generate_story_and_lyrics(monkeypatch):
-    monkeypatch.setattr(local_vlm, "generate_text", lambda prompt, system_prompt="", max_tokens=280: "[Verse 1]\nWalking in Paris\n[Music Prompt]\nChilled French Pop with Accordion")
+    monkeypatch.setattr(local_vlm, "generate_text", lambda prompt, system_prompt="", max_tokens=280, **kwargs: "[Verse 1]\nWalking in Paris\n[Music Prompt]\nChilled French Pop with Accordion")
     acts = [
         {
             "act_type": "Verse 1",
