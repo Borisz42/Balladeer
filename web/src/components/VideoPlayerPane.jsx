@@ -44,9 +44,10 @@ export default function VideoPlayerPane({
       } else {
         if (currentChunk.length > 0) {
           grouped.push({
+            lineIndex: currentLineIdx,
             words: currentChunk,
             start: currentChunk[0].snapped_start,
-            end: currentChunk[currentChunk.length - 1].snapped_end + 0.3
+            end: currentChunk[currentChunk.length - 1].snapped_end
           });
         }
         currentChunk = [w];
@@ -56,24 +57,25 @@ export default function VideoPlayerPane({
 
     if (currentChunk.length > 0) {
       grouped.push({
+        lineIndex: currentLineIdx,
         words: currentChunk,
         start: currentChunk[0].snapped_start,
-        end: currentChunk[currentChunk.length - 1].snapped_end + 0.3
+        end: currentChunk[currentChunk.length - 1].snapped_end
       });
     }
 
     return grouped;
   }, [audioTrack?.aligned_lyrics]);
 
-  // Find active line at currentTime
-  const activeLine = lyricLines.find(
-    (l) => currentTime >= l.start && currentTime <= l.end
-  );
-
-  // Active phrase fallback
-  const activePhraseWords = audioTrack?.aligned_lyrics?.filter(
-    (w) => Math.abs(w.snapped_start - currentTime) <= 2.2
-  ) || [];
+  // Find active line at currentTime without cross-line word mixing
+  const activeLine = useMemo(() => {
+    if (!lyricLines.length) return null;
+    return lyricLines.find((l, idx) => {
+      const nextLine = lyricLines[idx + 1];
+      const effectiveEnd = nextLine ? Math.min(nextLine.start, l.end + 0.4) : l.end + 0.4;
+      return currentTime >= l.start && currentTime <= effectiveEnd;
+    }) || null;
+  }, [lyricLines, currentTime]);
 
   // Preload and cache media elements (Images, Thumbnails, Videos)
   useEffect(() => {
@@ -380,11 +382,7 @@ export default function VideoPlayerPane({
       ctx.restore();
     } else if (subtitleMode === 'karaoke_lyrics') {
       // 3. Line-by-line Karaoke synced lyrics or Timed Voiceover Narration Subtitles
-      const lineToRender = activeLine || (activePhraseWords.length > 0 ? {
-        words: activePhraseWords,
-        start: activePhraseWords[0].snapped_start,
-        end: activePhraseWords[activePhraseWords.length - 1].snapped_end + 0.3
-      } : null);
+      const lineToRender = activeLine;
 
       if (lineToRender && lineToRender.words.length > 0) {
         ctx.save();
@@ -445,7 +443,7 @@ export default function VideoPlayerPane({
     ctx.textAlign = 'center';
     ctx.fillText(`${currentTime.toFixed(2)}s / ${aspect}`, 72, 32);
 
-  }, [currentTime, activeSlice, activeLine, activePhraseWords, lyricLines, aspect, audioTrack, viewMode, project?.config_override]);
+  }, [currentTime, activeSlice, activeLine, lyricLines, aspect, audioTrack, viewMode, project?.config_override]);
 
   return (
     <div className="glass-panel rounded-2xl p-4 border border-slate-800 h-full flex flex-col overflow-hidden">

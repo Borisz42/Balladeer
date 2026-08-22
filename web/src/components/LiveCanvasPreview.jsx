@@ -43,9 +43,10 @@ export default function LiveCanvasPreview({
       } else {
         if (currentChunk.length > 0) {
           grouped.push({
+            lineIndex: currentLineIdx,
             words: currentChunk,
             start: currentChunk[0].snapped_start,
-            end: currentChunk[currentChunk.length - 1].snapped_end + 0.3
+            end: currentChunk[currentChunk.length - 1].snapped_end
           });
         }
         currentChunk = [w];
@@ -55,19 +56,25 @@ export default function LiveCanvasPreview({
 
     if (currentChunk.length > 0) {
       grouped.push({
+        lineIndex: currentLineIdx,
         words: currentChunk,
         start: currentChunk[0].snapped_start,
-        end: currentChunk[currentChunk.length - 1].snapped_end + 0.3
+        end: currentChunk[currentChunk.length - 1].snapped_end
       });
     }
 
     return grouped;
   }, [audioTrack?.aligned_lyrics]);
 
-  // Find active line at currentTime
-  const activeLine = lyricLines.find(
-    (l) => currentTime >= l.start && currentTime <= l.end
-  );
+  // Find active line at currentTime cleanly without cross-line mixing
+  const activeLine = useMemo(() => {
+    if (!lyricLines.length) return null;
+    return lyricLines.find((l, idx) => {
+      const nextLine = lyricLines[idx + 1];
+      const effectiveEnd = nextLine ? Math.min(nextLine.start, l.end + 0.4) : l.end + 0.4;
+      return currentTime >= l.start && currentTime <= effectiveEnd;
+    }) || null;
+  }, [lyricLines, currentTime]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -287,11 +294,7 @@ export default function LiveCanvasPreview({
       ctx.restore();
     } else if (subtitleMode === 'karaoke_lyrics') {
       // 3. Line-by-line Karaoke synced lyrics or Timed Story Subtitles
-      const lineToRender = activeLine || (activePhraseWords.length > 0 ? {
-        words: activePhraseWords,
-        start: activePhraseWords[0].snapped_start,
-        end: activePhraseWords[activePhraseWords.length - 1].snapped_end + 0.3
-      } : null);
+      const lineToRender = activeLine;
 
       if (lineToRender && lineToRender.words.length > 0) {
         ctx.save();
@@ -343,7 +346,7 @@ export default function LiveCanvasPreview({
         ctx.restore();
       }
     }
-  }, [currentTime, activeSlice, activeWords, activePhraseWords, activeLine, lyricLines, aspectRatio, audioTrack, config]);
+  }, [currentTime, activeSlice, activeWords, activeLine, lyricLines, aspectRatio, audioTrack, config]);
 
   return (
     <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 flex flex-col items-center justify-center relative overflow-hidden">
