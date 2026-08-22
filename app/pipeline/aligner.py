@@ -49,6 +49,63 @@ class AudioAligner:
     ) -> List[AlignedWordModel]:
         return mms_aligner.align(vocal_path, lyrics_text, beat_grid)
 
+    def align_instrumental_narration_subtitles(
+        self,
+        subtitles_text: str,
+        beat_grid: List[float]
+    ) -> List[AlignedWordModel]:
+        """
+        Synthesizes timed word-level alignment for instrumental spoken story subtitles,
+        distributing words evenly across each section's start and end timestamps at normal speaking tempo.
+        """
+        import re
+        blocks = [b.strip() for b in subtitles_text.split("\n\n") if b.strip()]
+        aligned_words: List[AlignedWordModel] = []
+
+        for block in blocks:
+            lines = [l.strip() for l in block.split("\n") if l.strip()]
+            if not lines:
+                continue
+
+            # Check for header tag: [0:04-0:28] [Verse 1: ...] (24s)
+            t_match = re.search(r"\[(\d+):(\d+(?:\.\d+)?)\s*-\s*(\d+):(\d+(?:\.\d+)?)\]", lines[0])
+            if t_match:
+                start_sec = int(t_match.group(1)) * 60 + float(t_match.group(2))
+                end_sec = int(t_match.group(3)) * 60 + float(t_match.group(4))
+                body_lines = lines[1:]
+            else:
+                start_sec = 0.0
+                end_sec = 10.0
+                body_lines = lines
+
+            # Extract words from body lines
+            raw_text = " ".join(body_lines)
+            raw_text = re.sub(r"\[.*?\]", "", raw_text)  # Remove any bracketed tags
+            words = [w.strip() for w in re.split(r"\s+", raw_text) if w.strip()]
+            if not words:
+                continue
+
+            section_dur = max(1.0, end_sec - start_sec)
+            # Allocate duration per word (~2.2 words per second)
+            word_dur = min(0.6, max(0.25, (section_dur * 0.9) / len(words)))
+            cur_time = start_sec
+
+            for w in words:
+                w_start = round(cur_time, 3)
+                w_end = round(cur_time + word_dur, 3)
+                aligned_words.append(
+                    AlignedWordModel(
+                        word=w,
+                        start_sec=w_start,
+                        end_sec=w_end,
+                        confidence=1.0,
+                        beat_idx=None
+                    )
+                )
+                cur_time += word_dur
+
+        return aligned_words
+
     def snap_to_beat(
         self,
         time_sec: float,

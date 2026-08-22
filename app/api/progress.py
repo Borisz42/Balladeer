@@ -50,9 +50,12 @@ async def sse_progress(project_id: str):
             # Initial handshake event
             yield f"event: connected\ndata: {json.dumps({'project_id': project_id, 'status': 'connected'})}\n\n"
             while True:
-                data = await queue.get()
-                yield f"event: progress\ndata: {data}\n\n"
-        except asyncio.CancelledError:
+                try:
+                    data = await queue.get()
+                    yield f"event: progress\ndata: {data}\n\n"
+                except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
+                    break
+        except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
             pass
         finally:
             progress_tracker.unsubscribe(project_id, queue)

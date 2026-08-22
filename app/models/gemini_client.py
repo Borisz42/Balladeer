@@ -199,15 +199,17 @@ class GoogleAIStudioClient:
 
         raise RuntimeError(last_error or f"Failed to call Google AI Studio API for {model_name}")
 
-    async def generate_story_and_lyrics(
+    async def generate_music_style_and_prompt(
         self,
         model_name: str,
-        narrative_text: str,
-        is_instrumental: bool = False
+        acts: List[Dict[str, Any]],
+        narrative_text: str = "",
+        suggested_bpm: int = 118,
+        total_duration_sec: float = 30.0,
+        style_vibe: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Structures a travel diary into 5 musical acts and generates a prompt
-        meticulously optimized for Google Flow Music (MusicFX / Lyria) and AI audio generation.
+        Phase 2: Generates an optimized Google Flow Music prompt with section cues and duration hints.
         """
         api_key = self._get_api_key()
         if not api_key:
@@ -215,18 +217,138 @@ class GoogleAIStudioClient:
 
         candidate_slugs = MODEL_API_MAP.get(model_name, [model_name, "gemini-3.7-flash", "gemini-3.6-flash"])
 
+        structure_summary = []
+        for a in acts:
+            s_sec = int(a.get("start_sec", 0))
+            e_sec = int(a.get("end_sec", 0))
+            dur = a.get("duration_sec", 10.0)
+            structure_summary.append(
+                f"- [{s_sec//60}:{s_sec%60:02d}-{e_sec//60}:{e_sec%60:02d}] {a.get('act_type', 'Section')}: {a.get('title', '')} ({dur:.0f}s duration)"
+            )
+        struct_str = "\n".join(structure_summary)
+
+        vibe_hint = f"Desired Style/Genre: {style_vibe}\n" if style_vibe else ""
+
         prompt_instruction = (
-            f"You are an award-winning music composer and songwriter. "
-            f"Transform this travel log/diary into an evocative musical song structure.\n\n"
-            f"DIARY LOG:\n{narrative_text}\n\n"
+            f"You are an expert music producer and Google Flow Music prompt engineer. "
+            f"Generate an optimized musical style prompt tailored for Google Flow Music (MusicFX / Lyria) "
+            f"for a travel montage video with exact target duration {int(total_duration_sec)} seconds and tempo {suggested_bpm} BPM.\n\n"
+            f"{vibe_hint}"
+            f"DIARY CONTEXT:\n{narrative_text[:800]}\n\n"
+            f"SONG SECTION TIMELINE:\n{struct_str}\n\n"
             f"REQUIREMENTS:\n"
-            f"1. Generate structured 5-Act rhyming lyrics: [Verse 1], [Chorus], [Verse 2], [Bridge], [Outro]. "
-            f"Each act should have 2 to 4 concise, rhythmic lines with strong rhyme schemes.\n"
-            f"2. Generate an 'optimized_flow_music_prompt' tailored specifically for Google Flow Music (MusicFX / Lyria) "
-            f"including genre, acoustic/electric instruments, tempo (BPM), vocal mood, and atmospheric texture.\n"
-            f"3. Return ONLY a valid JSON object with keys: 'lyrics' (full formatted lyric string with headers), "
-            f"'flow_prompt' (the single-paragraph Google Flow Music prompt), and 'suggested_bpm' (integer 90-140)."
+            f"1. Generate a single-paragraph 'flow_prompt' specifying genre, key instruments (e.g. acoustic guitar, cello, percussion), "
+            f"tempo ({suggested_bpm} BPM), dynamic energy arc, and section breakdown with timestamp clues.\n"
+            f"2. Suggest 'genre', 'mood', and 'instruments' (array of 3-5 strings).\n"
+            f"3. Return ONLY a valid JSON object with schema:\n"
+            f"{{\n"
+            f"  \"flow_prompt\": \"...\",\n"
+            f"  \"suggested_bpm\": {suggested_bpm},\n"
+            f"  \"genre\": \"...\",\n"
+            f"  \"mood\": \"...\",\n"
+            f"  \"instruments\": [\"...\"]\n"
+            f"}}"
         )
+
+        payload = {
+            "contents": [{"parts": [{"text": prompt_instruction}]}],
+            "generationConfig": {
+                "temperature": 0.5,
+                "maxOutputTokens": 1024,
+                "responseMimeType": "application/json"
+            }
+        }
+
+        last_error = None
+        for slug in candidate_slugs:
+            url = f"{self.base_url}/{slug}:generateContent?key={api_key}"
+            try:
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    resp = await client.post(url, json=payload)
+                    if resp.status_code != 200:
+                        last_error = f"Error {resp.status_code} on {slug}: {resp.text[:200]}"
+                        continue
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        continue
+                    raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+                    cleaned = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
+                    cleaned = re.sub(r"^```\s*", "", cleaned)
+                    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+                    parsed = json.loads(cleaned)
+                    return {
+                        "flow_prompt": str(parsed.get("flow_prompt", "")),
+                        "suggested_bpm": int(parsed.get("suggested_bpm", suggested_bpm)),
+                        "genre": str(parsed.get("genre", "Acoustic Indie Folk")),
+                        "mood": str(parsed.get("mood", "Uplifting & Atmospheric")),
+                        "instruments": list(parsed.get("instruments", ["Acoustic Guitar", "Vocals", "Percussion"]))
+                    }
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        raise RuntimeError(last_error or f"Failed to generate music style prompt for {model_name}")
+
+    async def generate_story_and_lyrics(
+        self,
+        model_name: str,
+        narrative_text: str,
+        is_instrumental: bool = False,
+        acts: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Structures a travel diary into musical acts with proportional rhyming lyrics
+        and timestamp cues optimized for Google Flow Music.
+        """
+        api_key = self._get_api_key()
+        if not api_key:
+            raise ValueError("No Google AI Studio / Gemini API key configured.")
+
+        candidate_slugs = MODEL_API_MAP.get(model_name, [model_name, "gemini-3.7-flash", "gemini-3.6-flash"])
+
+        acts_context = ""
+        if acts:
+            lines = []
+            for a in acts:
+                s_sec = int(a.get("start_sec", 0))
+                e_sec = int(a.get("end_sec", 0))
+                dur = a.get("duration_sec", 10.0)
+                lines.append(
+                    f"[{s_sec//60}:{s_sec%60:02d}-{e_sec//60}:{e_sec%60:02d}] [{a.get('act_type', 'Section')}] ({dur:.0f}s): {a.get('title', '')} - {a.get('directions', '')}"
+                )
+            acts_context = "PLANNED SECTION TIMELINE:\n" + "\n".join(lines) + "\n\n"
+
+        if is_instrumental:
+            prompt_instruction = (
+                f"You are a cinematic documentary narrator and music producer. "
+                f"Transform this travel log/diary and scene descriptions into timed spoken narrative voiceover subtitles "
+                f"for a travel video with background instrumental music.\n\n"
+                f"{acts_context}"
+                f"DIARY LOG & SCENE CAPTIONS:\n{narrative_text}\n\n"
+                f"REQUIREMENTS:\n"
+                f"1. Generate timed spoken narrative subtitles for each section matching normal speaking tempo (~2.2 words per second). "
+                f"Describe the travel story with specific focus on what is seen in the photos and video scenes. Use timestamp headers like [0:04-0:15] [Verse 1: Day 1 - Paris].\n"
+                f"2. Generate an 'optimized_flow_music_prompt' tailored specifically for Google Flow Music (MusicFX / Lyria) "
+                f"for background instrumental music (e.g. Acoustic Indie Folk, Warm Lo-Fi, Cinematic Ambient) with tempo (BPM) and section breakdown.\n"
+                f"3. Return ONLY a valid JSON object with keys: 'lyrics' (full formatted timed narrative subtitles string with timestamp headers), "
+                f"'flow_prompt' (the Google Flow Music prompt), and 'suggested_bpm' (integer 90-140)."
+            )
+        else:
+            prompt_instruction = (
+                f"You are an award-winning music composer and songwriter. "
+                f"Transform this travel log/diary into evocative rhyming song lyrics proportional to section durations.\n\n"
+                f"{acts_context}"
+                f"DIARY LOG:\n{narrative_text}\n\n"
+                f"REQUIREMENTS:\n"
+                f"1. Generate structured rhyming lyrics with explicit timestamps matching each section, e.g. [0:04-0:15] [Verse 1: Day 1 - Paris]. "
+                f"Scale the lines to the section length (e.g. 2 lines for 8-10s, 4 lines for 15s+). "
+                f"For instrumental sections (Intro, Outro, Interludes), include a descriptive cue in brackets like [Instrumental - Acoustic Guitar Build].\n"
+                f"2. Generate an 'optimized_flow_music_prompt' tailored specifically for Google Flow Music (MusicFX / Lyria) "
+                f"including genre, acoustic/electric instruments, tempo (BPM), vocal mood, and atmospheric texture with section breakdown.\n"
+                f"3. Return ONLY a valid JSON object with keys: 'lyrics' (full formatted lyric string with headers and timestamps), "
+                f"'flow_prompt' (the Google Flow Music prompt), and 'suggested_bpm' (integer 90-140)."
+            )
 
         payload = {
             "contents": [{"parts": [{"text": prompt_instruction}]}],
@@ -241,7 +363,6 @@ class GoogleAIStudioClient:
         for slug in candidate_slugs:
             url = f"{self.base_url}/{slug}:generateContent?key={api_key}"
             logger.info(f"[Google-AI] Calling '{slug}' for story structure & Google Flow Music prompt generation...")
-            logger.info(f"[Google-AI] Narrative Input ({len(narrative_text)} chars): \"{narrative_text[:120]}...\"")
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(url, json=payload)
@@ -251,7 +372,11 @@ class GoogleAIStudioClient:
                         continue
 
                     data = resp.json()
-                    raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        continue
+
+                    raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
                     cleaned_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
                     cleaned_text = re.sub(r"^```\s*", "", cleaned_text)
                     cleaned_text = re.sub(r"\s*```$", "", cleaned_text).strip()
@@ -261,7 +386,7 @@ class GoogleAIStudioClient:
                     lyrics_str = str(parsed.get("lyrics", ""))
                     suggested_bpm = int(parsed.get("suggested_bpm", 120))
 
-                    logger.info(f"[Google-AI] ✓ Model '{slug}' generated lyrics ({len(lyrics_str.splitlines())} lines) & Flow Music Prompt: \"{flow_prompt[:100]}...\" (BPM: {suggested_bpm})")
+                    logger.info(f"[Google-AI] ✓ Model '{slug}' generated lyrics ({len(lyrics_str.splitlines())} lines) & Flow Music Prompt (BPM: {suggested_bpm})")
 
                     return {
                         "lyrics": lyrics_str,
@@ -272,7 +397,6 @@ class GoogleAIStudioClient:
                 last_error = str(e)
                 logger.warning(f"[Google-AI] Exception on '{slug}': {e}")
                 continue
-
 
         raise RuntimeError(last_error or f"Failed to call Google AI Studio API for {model_name}")
 

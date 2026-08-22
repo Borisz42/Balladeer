@@ -609,6 +609,35 @@ class LocalVLMRunner:
         from app.pipeline.rephraser import diary_rephraser
         return diary_rephraser.draft_travel_log_from_media(media_items, title)
 
+    def generate_music_style_and_prompt(
+        self,
+        acts: List[Dict[str, Any]],
+        narrative_text: str = "",
+        suggested_bpm: int = 118,
+        total_duration_sec: float = 30.0,
+        style_vibe: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generates a structured Google Flow Music prompt using local VLM or heuristic fallback."""
+        from app.pipeline.music_gen import MusicGenerator
+        mg = MusicGenerator()
+        heuristic_prompt = mg._generate_heuristic_flow_prompt(acts, suggested_bpm, total_duration_sec, style_vibe or "Acoustic Indie Folk Pop")
+
+        system_prompt = (
+            "You are an expert music producer. Create an inspiring 1-2 sentence Google Flow Music prompt "
+            "specifying genre, instruments, tempo (BPM), and section breakdown."
+        )
+        prompt = f"Montage ({int(total_duration_sec)}s, {suggested_bpm} BPM): {narrative_text[:200]}"
+        out_prompt = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=120)
+        final_prompt = out_prompt.strip() if out_prompt and len(out_prompt.strip()) > 20 else heuristic_prompt
+
+        return {
+            "flow_prompt": final_prompt,
+            "suggested_bpm": suggested_bpm,
+            "genre": style_vibe or "Acoustic Indie Folk Pop",
+            "mood": "Uplifting & Inspiring",
+            "instruments": ["Acoustic Guitar", "Warm Vocals", "Ambient Percussion", "Cello"]
+        }
+
     def generate_story_and_lyrics(
         self,
         acts: List[Dict[str, Any]],
@@ -620,24 +649,77 @@ class LocalVLMRunner:
         mg = MusicGenerator()
         heuristic_lyrics, heuristic_prompt = mg._generate_heuristic_lyrics(acts, is_instrumental)
 
+        # Format acts timeline into the prompt
+        acts_lines = []
+        for a in acts:
+            s = int(a.get("start_sec", 0))
+            e = int(a.get("end_sec", 0))
+            dur = a.get("duration_sec", 0)
+            a_type = a.get("act_type", "Verse")
+            a_title = a.get("title", "")
+            title_suffix = f": {a_title}" if a_title and a_title.lower() != a_type.lower() else ""
+            acts_lines.append(f"[{s//60}:{s%60:02d}-{e//60}:{e%60:02d}] [{a_type}{title_suffix}] ({dur:.0f}s)")
+        
+        timeline_schedule = "\n".join(acts_lines)
+
         if is_instrumental:
             system_prompt = (
-                "You are an expert music producer. Create a concise 1-2 sentence Google Flow Music prompt "
-                "specifying genre, instruments, mood, and BPM."
+                "You are a cinematic documentary narrator. Write timed spoken narrative voiceover subtitles "
+                "for a travel video with background instrumental music.\n\n"
+                "CRITICAL RULES:\n"
+                "1. For each section, write natural spoken storytelling narration (~2.2 words per second normal speaking tempo) "
+                "describing the travel journey and specifically highlighting what is seen in the photos and video scenes.\n"
+                "2. Word budgets per section (normal speaking tempo):\n"
+                "   - 4s Intro / Outro: 6 to 10 words\n"
+                "   - 10s Section: 20 to 25 words\n"
+                "   - 15s Section: 32 to 38 words\n"
+                "   - 24s Section: 50 to 58 words\n"
+                "3. Follow the section timeline schedule strictly with timestamp headers.\n"
+                "4. Do NOT use markdown bolding (**) or hashtags (#). Use plain narrative sentences.\n\n"
+                "EXAMPLE OUTPUT FORMAT:\n"
+                "[0:00-0:04] [Intro] (4s)\n"
+                "Our journey begins as morning light breaks across the horizon.\n\n"
+                "[0:04-0:24] [Verse 1: Day 1] (20s)\n"
+                "Walking down the cobblestone streets, we take in the historic architecture and lively local markets. "
+                "Every corner reveals colorful shopfronts, quiet riverside cafes, and the vibrant spirit of the city as we explore.\n\n"
+                "[0:24-0:28] [Outro] (4s)\n"
+                "As the sun sets, we hold onto memories from an unforgettable day."
             )
-            prompt = f"Montage: {narrative_text[:200]}"
-            out_prompt = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=100)
-            final_prompt = out_prompt if len(out_prompt) > 20 else heuristic_prompt
-            return heuristic_lyrics, final_prompt
+            prompt = (
+                f"Travel Story & Scene Captions:\n{narrative_text[:450]}\n\n"
+                f"Required Section Timeline:\n{timeline_schedule}\n\n"
+                "Write the timed spoken narrative subtitles for each section now:"
+            )
+            out_subs = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=650)
+            final_subs = out_subs.strip() if out_subs and "[" in out_subs else heuristic_lyrics
+            return final_subs, heuristic_prompt
 
         system_prompt = (
-            "You are a songwriter. Write brief rhyming lyrics with [Verse 1], [Chorus], [Verse 2], [Outro]. "
-            "End with [Music Prompt] for genre and instruments. Be concise."
+            "You are an expert songwriter and poet. Write poetic, evocative rhyming song lyrics (AABB rhyme scheme) "
+            "based on the travel story and section timeline.\n\n"
+            "CRITICAL RULES:\n"
+            "1. For each [Verse] section, you MUST write 2 to 4 full poetic rhyming lines (at least 7-10 words per line) telling the story. Do NOT just repeat the section title or tags.\n"
+            "2. For [Intro] and [Outro] instrumental sections, write [Instrumental - acoustic guitar description].\n"
+            "3. Do NOT use markdown bolding (**) or hashtags (#). Use plain text lines.\n\n"
+            "EXAMPLE OUTPUT FORMAT:\n"
+            "[0:00-0:04] [Intro] (4s)\n"
+            "[Instrumental - Gentle acoustic guitar strumming]\n\n"
+            "[0:04-0:24] [Verse 1: Morning Journey] (20s)\n"
+            "Stepping out into the golden morning light\n"
+            "Cobblestone streets stretching out of sight\n"
+            "Every single step becomes a memory to make\n"
+            "Smiling at the sunrise as the quiet cities wake\n\n"
+            "[0:24-0:28] [Outro] (4s)\n"
+            "[Instrumental - Warm acoustic fade-out]"
         )
-        prompt = f"Story: {narrative_text[:300]}\nOutput song lyrics:"
+        prompt = (
+            f"Travel Story & Captions: {narrative_text[:400]}\n\n"
+            f"Required Section Timeline:\n{timeline_schedule}\n\n"
+            "Write the full rhyming song lyrics for each section now:"
+        )
 
-        out = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=280)
-        if out and "[verse" in out.lower():
+        out = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=650)
+        if out and ("[" in out or "verse" in out.lower()):
             if "[music prompt]" in out.lower():
                 parts = re.split(r"\[music prompt\]", out, flags=re.IGNORECASE)
                 lyrics = parts[0].strip()

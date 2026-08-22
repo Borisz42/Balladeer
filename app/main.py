@@ -29,8 +29,20 @@ async def lifespan(app: FastAPI):
     logger.info("   Balladeer Server Initialized (Ready on http://localhost:8000)")
     logger.info("================================================================")
     
-    # Asynchronously pre-warm local AI engines in background (SigLIP 2 followed by Local VLM)
+    # Suppress harmless Windows Proactor socket disconnect errors when clients refresh/disconnect
     import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        def _asyncio_exception_handler(current_loop, context):
+            exc = context.get("exception")
+            if isinstance(exc, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+                return
+            current_loop.default_exception_handler(context)
+        loop.set_exception_handler(_asyncio_exception_handler)
+    except Exception:
+        pass
+
+    # Asynchronously pre-warm local AI engines in background (SigLIP 2 followed by Local VLM)
     from app.models.siglip_embedder import siglip_embedder
     from app.models.local_vlm import local_vlm
 

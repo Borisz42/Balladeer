@@ -198,6 +198,81 @@ export async function fetchAssetFrameScores(projectId, assetId) {
   return res.json();
 }
 
+export async function toggleAssetInclusion(projectId, assetId, { include, thresholdScore, delta } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/assets/${assetId}/toggle-inclusion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      include: !!include,
+      threshold_score: thresholdScore !== undefined ? thresholdScore : null,
+      delta: delta !== undefined ? delta : 0.15
+    })
+  });
+  if (!res.ok) throw new Error('Failed to toggle asset inclusion');
+  return res.json();
+}
+
+export async function analyzeMusicTimeline(projectId, { pacingPreset, photoSec, videoSecMax, defaultThreshold, dailyThresholds } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/music/analyze-timeline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pacing_preset: pacingPreset || 'balanced',
+      photo_sec: photoSec !== undefined ? photoSec : null,
+      video_sec_max: videoSecMax !== undefined ? videoSecMax : null,
+      default_inclusion_threshold: defaultThreshold !== undefined ? defaultThreshold : 70.0,
+      daily_inclusion_thresholds: dailyThresholds || null
+    })
+  });
+  if (!res.ok) throw new Error('Failed to analyze music timeline');
+  return res.json();
+}
+
+export async function generateMusicPrompt(projectId, { styleVibe, suggestedBpm, totalDurationSec, acts } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/music/generate-prompt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      style_vibe: styleVibe || null,
+      suggested_bpm: suggestedBpm || null,
+      total_duration_sec: totalDurationSec || null,
+      acts: acts || null
+    })
+  });
+  if (!res.ok) throw new Error('Failed to generate music prompt');
+  return res.json();
+}
+
+export async function generateMusicLyrics(projectId, { flowPrompt, isInstrumental, acts } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/music/generate-lyrics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      flow_prompt: flowPrompt || null,
+      is_instrumental: !!isInstrumental,
+      acts: acts || null
+    })
+  });
+  if (!res.ok) throw new Error('Failed to generate music lyrics');
+  return res.json();
+}
+
+export async function synthesizeMusicAudio(projectId, { prompt, lyrics, bpm, durationSec, is_instrumental } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/music/synthesize-and-align`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: prompt || null,
+      lyrics: lyrics || null,
+      bpm: bpm || 118.0,
+      duration_sec: durationSec || 30.0,
+      is_instrumental: is_instrumental || false
+    })
+  });
+  if (!res.ok) throw new Error('Failed to synthesize music audio');
+  return res.json();
+}
+
 export async function generateMusic(projectId, { prompt, bpm, durationSec, is_instrumental } = {}) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/generate-music`, {
     method: 'POST',

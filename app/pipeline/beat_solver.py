@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 import numpy as np
 
 from app.core.config import get_settings, BalladeerSettings
@@ -75,25 +75,6 @@ class BeatSolver:
         quality_threshold = self.settings.indexing.quality_threshold
         active_assets = [a for a in assets if a.is_active] or assets
 
-        def parse_time(a: MediaAssetModel) -> float:
-            if a.capture_time:
-                try:
-                    return datetime.fromisoformat(a.capture_time.replace("Z", "+00:00")).timestamp()
-                except Exception:
-                    pass
-            return 0.0
-
-        active_assets.sort(key=parse_time)
-        high_quality_assets = [a for a in active_assets if a.quality_score >= quality_threshold]
-        pool = high_quality_assets if len(high_quality_assets) >= 3 else active_assets
-
-        beat_grid = audio_track.beat_grid
-        total_beats = len(beat_grid)
-        if total_beats < 2:
-            beat_interval = 60.0 / audio_track.bpm
-            beat_grid = [round(i * beat_interval, 4) for i in range(int(30.0 / beat_interval))]
-            total_beats = len(beat_grid)
-
         # Retrieve video segments if available
         video_segments_map: Dict[str, List[Dict[str, Any]]] = {}
         try:
@@ -107,25 +88,155 @@ class BeatSolver:
         except Exception:
             pass
 
+        def parse_day_and_time(a: MediaAssetModel) -> Tuple[int, float]:
+            day_num = 1
+            if a.tags:
+                for tag in a.tags:
+                    if tag.startswith("day:Day "):
+                        try:
+                            day_num = int(tag.replace("day:Day ", ""))
+                            break
+                        except Exception:
+                            pass
+
+            t_val = 0.0
+            if a.capture_time:
+                try:
+                    t_val = datetime.fromisoformat(a.capture_time.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    pass
+            return day_num, t_val
+
+        # Build discrete Shot Candidates (1 per photo, multiple distinct non-overlapping segments per video)
+        class ShotCandidate:
+            def __init__(
+                self,
+                shot_id: str,
+                asset: MediaAssetModel,
+                segment_id: Optional[str] = None,
+                segment_data: Optional[Dict[str, Any]] = None,
+                day_num: int = 1,
+                timestamp: float = 0.0,
+                sub_order: int = 0
+            ):
+                self.shot_id = shot_id
+                self.asset = asset
+                self.segment_id = segment_id
+                self.segment_data = segment_data
+                self.day_num = day_num
+                self.timestamp = timestamp
+                self.sub_order = sub_order
+
+        shot_candidates: List[ShotCandidate] = []
+        for a in active_assets:
+            d_num, t_val = parse_day_and_time(a)
+            if a.media_type == "video":
+                segs = video_segments_map.get(a.id, [])
+                if segs:
+                    # Sort segments by start time
+                    segs.sort(key=lambda s: s.get("start_time", 0.0))
+                    for s_idx, seg in enumerate(segs):
+                        shot_candidates.append(
+                            ShotCandidate(
+                                shot_id=f"{a.id}_seg_{seg['id']}",
+                                asset=a,
+                                segment_id=seg["id"],
+                                segment_data=seg,
+                                day_num=d_num,
+                                timestamp=t_val + (seg.get("start_time", 0.0)),
+                                sub_order=s_idx
+                            )
+                        )
+                else:
+                    # If video has duration > 4s, allow up to 2-3 non-overlapping cuts
+                    v_dur = float(a.duration_sec or 3.0)
+                    if v_dur >= 7.0:
+                        n_cuts = min(3, int(v_dur // 3.5))
+                        cut_len = v_dur / n_cuts
+                        for c_idx in range(n_cuts):
+                            shot_candidates.append(
+                                ShotCandidate(
+                                    shot_id=f"{a.id}_part_{c_idx}",
+                                    asset=a,
+                                    segment_id=None,
+                                    segment_data={"start_time": c_idx * cut_len, "end_time": (c_idx + 1) * cut_len},
+                                    day_num=d_num,
+                                    timestamp=t_val + (c_idx * cut_len),
+                                    sub_order=c_idx
+                                )
+                            )
+                    else:
+                        shot_candidates.append(
+                            ShotCandidate(
+                                shot_id=f"{a.id}_full",
+                                asset=a,
+                                segment_id=None,
+                                segment_data=None,
+                                day_num=d_num,
+                                timestamp=t_val,
+                                sub_order=0
+                            )
+                        )
+            else:
+                shot_candidates.append(
+                    ShotCandidate(
+                        shot_id=f"{a.id}_photo",
+                        asset=a,
+                        segment_id=None,
+                        segment_data=None,
+                        day_num=d_num,
+                        timestamp=t_val,
+                        sub_order=0
+                    )
+                )
+
+        # STRICT CHRONOLOGICAL SORTING:
+        # 1. Day number (Day 1 -> Day 2 -> Day 3...)
+        # 2. Timestamp (EXIF capture_time)
+        # 3. Subsegment order
+        shot_candidates.sort(key=lambda s: (s.day_num, s.timestamp, s.sub_order))
+
+        if not shot_candidates:
+            return []
+
+        beat_grid = audio_track.beat_grid
+        total_beats = len(beat_grid)
+        if total_beats < 2:
+            beat_interval = 60.0 / audio_track.bpm
+            beat_grid = [round(i * beat_interval, 4) for i in range(int(30.0 / beat_interval))]
+            total_beats = len(beat_grid)
+
         slices: List[TimelineSliceModel] = []
         current_beat = 0
         clip_order = 0
-        asset_usage_history: List[str] = []
+        used_shot_ids: Set[str] = set()
+
+        # Track sequential index through chronological pool
+        chrono_idx = 0
 
         while current_beat < total_beats:
             beats_left = total_beats - current_beat
 
-            best_asset, best_score = self._select_best_asset(
-                pool=pool,
-                current_beat=current_beat,
-                total_beats=total_beats,
-                asset_usage_history=asset_usage_history,
-                is_instrumental=audio_track.is_instrumental
-            )
+            # Find next unused shot in chronological order
+            chosen_shot: Optional[ShotCandidate] = None
+            for idx in range(len(shot_candidates)):
+                cand = shot_candidates[(chrono_idx + idx) % len(shot_candidates)]
+                if cand.shot_id not in used_shot_ids:
+                    chosen_shot = cand
+                    chrono_idx = (chrono_idx + idx + 1) % len(shot_candidates)
+                    break
+
+            # If all shots in project have been used once, reset usage tracker to cycle
+            if not chosen_shot:
+                used_shot_ids.clear()
+                chosen_shot = shot_candidates[chrono_idx % len(shot_candidates)]
+                chrono_idx = (chrono_idx + 1) % len(shot_candidates)
+
+            used_shot_ids.add(chosen_shot.shot_id)
+            best_asset = chosen_shot.asset
 
             # Determine beat duration based on media type & instrumental phrasing
             if audio_track.is_instrumental:
-                # Phrasing: snap to 4-beat or 8-beat musical bar boundaries if possible
                 if best_asset.media_type == "video":
                     target_beats = min(vid_max, max(vid_min, 4))
                 else:
@@ -135,6 +246,14 @@ class BeatSolver:
                     target_beats = min(vid_max, max(vid_min, 3))
                 else:
                     target_beats = min(photo_max, max(photo_min, 2))
+
+            # If remaining beats are less than min allowed and we already have slices, absorb into previous slice
+            min_allowed = vid_min if best_asset.media_type == "video" else photo_min
+            if slices and beats_left < min_allowed:
+                prev = slices[-1]
+                prev.beat_count += beats_left
+                prev.timeline_end_sec = round(beat_grid[-1] if beat_grid else (prev.timeline_start_sec + prev.beat_count * (60.0 / audio_track.bpm)), 4)
+                break
 
             allocated_beats = min(target_beats, beats_left)
             if allocated_beats <= 0:
@@ -149,15 +268,6 @@ class BeatSolver:
             else:
                 t_end = t_start + (allocated_beats * (60.0 / audio_track.bpm))
 
-            # Pick matching video segment ID if video
-            matched_seg_id = None
-            if best_asset.media_type == "video" and best_asset.id in video_segments_map:
-                segs = video_segments_map[best_asset.id]
-                if segs:
-                    # Pick highest motion score
-                    segs.sort(key=lambda s: s.get("motion_score", 0.5), reverse=True)
-                    matched_seg_id = segs[0]["id"]
-
             slice_id = f"slice_{project_id}_{clip_order}_{start_beat_idx}"
 
             slices.append(
@@ -166,7 +276,7 @@ class BeatSolver:
                     project_id=project_id,
                     audio_track_id=audio_track.id,
                     asset_id=best_asset.id,
-                    video_segment_id=matched_seg_id,
+                    video_segment_id=chosen_shot.segment_id,
                     start_beat=start_beat_idx,
                     beat_count=allocated_beats,
                     timeline_start_sec=round(t_start, 4),
@@ -179,60 +289,7 @@ class BeatSolver:
                 )
             )
 
-            asset_usage_history.append(best_asset.id)
             current_beat += allocated_beats
             clip_order += 1
 
         return slices
-
-    def _select_best_asset(
-        self,
-        pool: List[MediaAssetModel],
-        current_beat: int,
-        total_beats: int,
-        asset_usage_history: List[str],
-        is_instrumental: bool = False
-    ) -> Tuple[MediaAssetModel, float]:
-        alpha = 0.45
-        beta = 0.35
-        gamma = 0.30
-
-        song_progress = current_beat / max(total_beats, 1)
-        best_score = -float("inf")
-        best_asset = pool[0]
-        n_assets = len(pool)
-
-        for i, asset in enumerate(pool):
-            asset_progress = i / max(n_assets, 1)
-            chrono_alignment = 1.0 - abs(song_progress - asset_progress)
-            quality_term = (asset.quality_score or 7.0) / 10.0
-
-            recency_penalty = 0.0
-            if asset_usage_history:
-                try:
-                    last_idx = len(asset_usage_history) - 1 - asset_usage_history[::-1].index(asset.id)
-                    dist = len(asset_usage_history) - last_idx
-                    if dist <= 3:
-                        recency_penalty = 1.0 / dist
-                except ValueError:
-                    pass
-
-            date_affinity = 0.0
-            if asset.tags:
-                for tag in asset.tags:
-                    if tag.startswith("day:Day "):
-                        try:
-                            d_num = int(tag.replace("day:Day ", ""))
-                            # Estimate which day the song progress corresponds to
-                            target_day = max(1, int(round(song_progress * 5)) + 1)
-                            if d_num == target_day:
-                                date_affinity = 0.25
-                        except Exception:
-                            pass
-
-            score = (alpha * chrono_alignment) + (beta * quality_term) + date_affinity - (gamma * recency_penalty)
-            if score > best_score:
-                best_score = score
-                best_asset = asset
-
-        return best_asset, best_score

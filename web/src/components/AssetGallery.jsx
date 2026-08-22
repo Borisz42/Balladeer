@@ -1,15 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FolderPlus, Image as ImageIcon, Video, Star, Tag, Clock, Cpu, Sparkles, CheckCircle2, RotateCw } from 'lucide-react';
+import { Upload, FolderPlus, Image as ImageIcon, Video, Star, Tag, Clock, Cpu, Sparkles, CheckSquare, Square, Check, X, Filter } from 'lucide-react';
 
 export default function AssetGallery({
   project,
   assets = [],
+  timelineEstimate,
   selectedAsset,
   onSelectAsset,
   onUploadFiles,
   onIndexDirectory,
   onIndexPending,
   onAssetUpdated,
+  onToggleInclusion,
   onOpenDiary,
   isLoading
 }) {
@@ -17,6 +19,7 @@ export default function AssetGallery({
   const [dirPath, setDirPath] = useState('');
   const [isIndexingDir, setIsIndexingDir] = useState(false);
   const [isBatchIndexing, setIsBatchIndexing] = useState(false);
+  const [togglingAssetId, setTogglingAssetId] = useState(null);
 
   const safeAssets = Array.isArray(assets) ? assets : [];
   const unindexedCount = safeAssets.filter((a) => a && !a.is_indexed).length;
@@ -51,6 +54,17 @@ export default function AssetGallery({
       alert('Batch indexing failed: ' + err.message);
     } finally {
       setIsBatchIndexing(false);
+    }
+  };
+
+  const handleToggleClick = async (e, asset, isCurrentlyIncluded, thresholdScore) => {
+    e.stopPropagation();
+    if (!onToggleInclusion || togglingAssetId) return;
+    setTogglingAssetId(asset.id);
+    try {
+      await onToggleInclusion(asset.id, !isCurrentlyIncluded, thresholdScore);
+    } finally {
+      setTogglingAssetId(null);
     }
   };
 
@@ -181,16 +195,26 @@ export default function AssetGallery({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
             {safeAssets.map((asset) => {
               if (!asset) return null;
               const isVideo = asset.media_type === 'video';
               const isSelected = selectedAsset?.id === asset.id;
+
+              // Calculate Auto-Inclusion metrics
+              const incStatus = timelineEstimate?.asset_inclusion_status?.[asset.id];
               const qScore = typeof asset.quality_score === 'number' ? asset.quality_score : 7.0;
+              const relScore = typeof asset.relevance_score_daily === 'number' ? asset.relevance_score_daily : 0.0;
+              
+              const autoScore = incStatus ? incStatus.inclusion_score : (relScore > 0 ? (0.5 * qScore + 0.5 * (relScore * 10)) : qScore);
+              const isIncluded = incStatus ? incStatus.is_included : (asset.is_active !== false);
+              const thresholdScore = incStatus ? incStatus.threshold_score : 7.0;
+              const rankText = incStatus ? `Rank #${incStatus.rank}/${incStatus.total_in_day}` : '';
+
               const qualityColor =
-                qScore >= 8.0
+                autoScore >= 8.0
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  : qScore >= 6.0
+                  : autoScore >= 6.0
                   ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
                   : 'bg-amber-500/20 text-amber-300 border-amber-500/40';
 
@@ -204,7 +228,9 @@ export default function AssetGallery({
                   className={`group relative rounded-xl overflow-hidden bg-slate-900 border transition-all cursor-pointer flex flex-col ${
                     isSelected
                       ? 'border-teal-400 ring-2 ring-teal-400/40 shadow-lg shadow-teal-500/10 scale-[1.02]'
-                      : 'border-slate-800 hover:border-slate-600'
+                      : isIncluded
+                      ? 'border-slate-800 hover:border-slate-600'
+                      : 'border-slate-800/60 opacity-60 grayscale-[30%] hover:opacity-100 hover:grayscale-0'
                   }`}
                 >
                   {/* Media Preview Thumbnail */}
@@ -219,6 +245,37 @@ export default function AssetGallery({
                       }}
                     />
 
+                    {/* Prominent Inclusion Checkbox / Toggle Badge */}
+                    <div className="absolute top-1 left-1 z-10">
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleClick(e, asset, isIncluded, thresholdScore)}
+                        disabled={togglingAssetId === asset.id}
+                        className={`px-1.5 py-0.5 rounded-md text-[8px] font-bold flex items-center gap-1 shadow-md transition ${
+                          isIncluded
+                            ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                            : 'bg-slate-900/90 text-slate-400 hover:text-white border border-slate-700'
+                        }`}
+                        title={
+                          isIncluded
+                            ? `Included in Music Timeline (Score: ${autoScore.toFixed(1)} >= Threshold: ${thresholdScore.toFixed(1)}). Click to Exclude.`
+                            : `Excluded from Music Timeline (Score: ${autoScore.toFixed(1)} < Threshold: ${thresholdScore.toFixed(1)}). Click to Include.`
+                        }
+                      >
+                        {isIncluded ? (
+                          <>
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            <span>Included</span>
+                          </>
+                        ) : (
+                          <>
+                            <X className="w-2.5 h-2.5 stroke-[3]" />
+                            <span>Excluded</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
                     {isVideo && (
                       <div className="absolute inset-0 bg-black/30 flex items-center justify-center pointer-events-none">
                         <div className="w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center text-white">
@@ -227,14 +284,15 @@ export default function AssetGallery({
                       </div>
                     )}
 
-                    {/* Quality Score Badge */}
+                    {/* Auto-Inclusion Score Badge with Basis Tooltip */}
                     {asset.is_indexed && (
                       <div className="absolute top-1 right-1">
                         <div
                           className={`px-1 py-0.2 rounded text-[8px] font-mono font-bold border flex items-center gap-0.5 shadow ${qualityColor}`}
+                          title={`Auto-Inclusion Score: ${autoScore.toFixed(1)} (Basis: 50% Qual ${qScore.toFixed(1)} + 50% Rel ${(relScore * 10).toFixed(1)}) | Cut-off: ${thresholdScore.toFixed(1)}`}
                         >
                           <Star className="w-2 h-2 fill-current" />
-                          {qScore.toFixed(1)}
+                          {autoScore.toFixed(1)}
                         </div>
                       </div>
                     )}
@@ -250,6 +308,13 @@ export default function AssetGallery({
                     <div className="absolute bottom-1 left-1 px-1 py-0.2 rounded bg-black/75 backdrop-blur-sm text-[8px] font-mono text-slate-300 uppercase">
                       {isVideo ? `${(asset.duration_sec || 0).toFixed(0)}s` : 'photo'}
                     </div>
+
+                    {/* Day / Rank Tag */}
+                    {rankText && (
+                      <div className="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-black/75 backdrop-blur-sm text-[8px] font-mono text-teal-300">
+                        {rankText}
+                      </div>
+                    )}
                   </div>
 
                   {/* Info Card */}

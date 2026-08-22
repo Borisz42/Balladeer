@@ -41,7 +41,9 @@ import {
   updateTimelineControls,
   bulkApplyTimelineEffects,
   subscribeProjectProgress,
-  shutdownServer
+  shutdownServer,
+  analyzeMusicTimeline,
+  toggleAssetInclusion
 } from './api';
 import { Sparkles, Activity, CheckCircle2, AlertCircle, PowerOff, Check } from 'lucide-react';
 
@@ -51,6 +53,7 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [currentProjectId, setCurrentProjectId] = useState('');
   const [projectDetail, setProjectDetail] = useState(null);
+  const [timelineEstimate, setTimelineEstimate] = useState(null);
 
   // Active selected asset for Inspector
   const [selectedAsset, setSelectedAsset] = useState(null);
@@ -168,6 +171,9 @@ export default function App() {
       } else {
         setSelectedAsset(null);
       }
+
+      // Fetch dynamic music timeline estimate
+      analyzeMusicTimeline(id).then(setTimelineEstimate).catch(() => {});
     } catch (err) {
       console.error('Failed to load project detail:', err);
       setProjectDetail(null);
@@ -338,6 +344,19 @@ export default function App() {
       throw err;
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleToggleAssetInclusion = async (assetId, include, thresholdScore) => {
+    if (!currentProjectId) return;
+    try {
+      const res = await toggleAssetInclusion(currentProjectId, assetId, { include, thresholdScore });
+      await loadProjectDetail(currentProjectId);
+      const est = await analyzeMusicTimeline(currentProjectId);
+      setTimelineEstimate(est);
+      return res;
+    } catch (err) {
+      alert('Failed to toggle asset inclusion: ' + err.message);
     }
   };
 
@@ -664,12 +683,14 @@ export default function App() {
               <AssetGallery
                 project={projectDetail.project}
                 assets={projectDetail.assets || []}
+                timelineEstimate={timelineEstimate}
                 selectedAsset={selectedAsset}
                 onSelectAsset={setSelectedAsset}
                 onUploadFiles={handleUploadFiles}
                 onIndexDirectory={handleIndexDirectory}
                 onIndexPending={handleIndexPending}
                 onAssetUpdated={() => loadProjectDetail(currentProjectId)}
+                onToggleInclusion={handleToggleAssetInclusion}
                 onOpenDiary={() => setIsDiaryModalOpen(true)}
                 isLoading={isLoading}
               />
@@ -680,7 +701,9 @@ export default function App() {
               <AssetDetailPane
                 project={projectDetail.project}
                 asset={selectedAsset}
+                timelineEstimate={timelineEstimate}
                 onAssetUpdated={() => loadProjectDetail(currentProjectId)}
+                onToggleInclusion={handleToggleAssetInclusion}
               />
             </div>
 
@@ -704,6 +727,8 @@ export default function App() {
               <MusicStudio
                 project={projectDetail.project}
                 audioTrack={projectDetail.audio_track}
+                timelineEstimate={timelineEstimate}
+                onTimelineEstimateUpdated={setTimelineEstimate}
                 onGenerateMusic={handleGenerateMusic}
                 onUploadAudio={handleUploadCustomAudio}
                 onOpenDiary={() => setIsDiaryModalOpen(true)}

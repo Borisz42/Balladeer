@@ -67,6 +67,36 @@ class GenerateMusicRequest(BaseModel):
     duration_sec: Optional[float] = 30.0
     is_instrumental: Optional[bool] = False
 
+class AnalyzeMusicTimelineRequest(BaseModel):
+    pacing_preset: Optional[str] = "balanced" # "fast" | "balanced" | "cinematic"
+    photo_sec: Optional[float] = None
+    video_sec_max: Optional[float] = None
+    default_inclusion_threshold: Optional[float] = 70.0
+    daily_inclusion_thresholds: Optional[Dict[str, float]] = None
+
+class GenerateMusicPromptRequest(BaseModel):
+    style_vibe: Optional[str] = None
+    suggested_bpm: Optional[int] = 118
+    total_duration_sec: Optional[float] = 30.0
+    acts: Optional[List[Dict[str, Any]]] = None
+
+class GenerateMusicLyricsRequest(BaseModel):
+    flow_prompt: Optional[str] = None
+    is_instrumental: Optional[bool] = False
+    acts: Optional[List[Dict[str, Any]]] = None
+
+class SynthesizeMusicAudioRequest(BaseModel):
+    prompt: Optional[str] = None
+    lyrics: Optional[str] = None
+    bpm: Optional[float] = 118.0
+    duration_sec: Optional[float] = 30.0
+    is_instrumental: Optional[bool] = False
+
+class ToggleAssetInclusionRequest(BaseModel):
+    include: bool
+    threshold_score: Optional[float] = None
+    delta: Optional[float] = 0.15
+
 class UpdateAssetRequest(BaseModel):
     caption: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -545,27 +575,219 @@ def get_asset_frame_scores(project_id: str, asset_id: str):
         "frame_scores": all_points
     }
 
+@router.post("/{project_id}/assets/{asset_id}/toggle-inclusion")
+def toggle_asset_inclusion(project_id: str, asset_id: str, req: ToggleAssetInclusionRequest):
+    """
+    Manually overrides asset inclusion for the music timeline by automatically
+    adjusting its quality/composite score to (threshold_score ± delta) and setting is_active.
+    """
+    asset = db.get_asset(asset_id)
+    if not asset or asset.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    delta = float(req.delta or 0.15)
+    rel_daily = float(asset.relevance_score_daily or 0.0)
+
+    # S_inc = 0.5 * S_qual + 0.5 * (S_rel_daily * 10.0)
+    # Target S_qual = 2.0 * target_inc - (rel_daily * 10.0)
+    if req.include:
+        if req.threshold_score is not None:
+            target_inc = req.threshold_score + delta
+            needed_qual = 2.0 * target_inc - (rel_daily * 10.0)
+            if needed_qual > 10.0:
+                new_qual = 10.0
+                new_rel = min(1.0, max(0.0, (target_inc - 0.5 * 10.0) / 5.0))
+                updates = {"quality_score": 10.0, "relevance_score_daily": round(new_rel, 2), "is_active": True}
+            else:
+                new_qual = max(1.0, min(10.0, needed_qual))
+                updates = {"quality_score": round(new_qual, 2), "is_active": True}
+        else:
+            new_qual = min(10.0, max(1.0, asset.quality_score + 0.6))
+            updates = {"quality_score": round(new_qual, 2), "is_active": True}
+        
+        updated = db.update_media_asset(asset_id, updates)
+    else:
+        if req.threshold_score is not None:
+            target_inc = max(1.0, req.threshold_score - delta)
+            needed_qual = 2.0 * target_inc - (rel_daily * 10.0)
+            if needed_qual < 1.0:
+                new_qual = 1.0
+                new_rel = max(0.0, (target_inc - 0.5 * 1.0) / 5.0)
+                updates = {"quality_score": 1.0, "relevance_score_daily": round(new_rel, 2)}
+            else:
+                new_qual = max(1.0, min(10.0, needed_qual))
+                updates = {"quality_score": round(new_qual, 2)}
+        else:
+            new_qual = max(1.0, min(10.0, asset.quality_score - 0.6))
+            updates = {"quality_score": round(new_qual, 2)}
+        
+        updated = db.update_media_asset(asset_id, updates)
+
+    return {
+        "status": "updated",
+        "asset": updated,
+        "new_score": music_gen.compute_asset_inclusion_score(updated)
+    }
+
+@router.post("/{project_id}/music/analyze-timeline")
+def analyze_music_timeline(project_id: str, req: Optional[AnalyzeMusicTimelineRequest] = None):
+    """
+    Phase 1: Calculates daily media stats, applies inclusion thresholds,
+    and returns section timing and suggested total duration and BPM.
+    """
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    assets = db.get_project_assets(project_id)
+    diary_days = (proj.config_override or {}).get("diary_days")
+
+    custom_cfg = proj.config_override or {}
+    if req:
+        if req.pacing_preset:
+            custom_cfg.setdefault("pacing_rules", {})["pacing_preset"] = req.pacing_preset
+        if req.photo_sec is not None:
+            custom_cfg.setdefault("pacing_rules", {})["photo_sec"] = req.photo_sec
+        if req.video_sec_max is not None:
+            custom_cfg.setdefault("pacing_rules", {})["video_sec_max"] = req.video_sec_max
+        if req.default_inclusion_threshold is not None:
+            custom_cfg["default_inclusion_threshold"] = req.default_inclusion_threshold
+        if req.daily_inclusion_thresholds is not None:
+            custom_cfg["daily_inclusion_thresholds"] = req.daily_inclusion_thresholds
+
+        # Persist updated threshold config into project
+        db.update_project(project_id, config_override=custom_cfg)
+
+    analysis = music_gen.calculate_media_timeline_estimate(
+        project_id=project_id,
+        diary_days=diary_days,
+        assets=assets,
+        custom_config=custom_cfg
+    )
+
+    return analysis
+
+@router.post("/{project_id}/music/generate-prompt")
+async def generate_music_prompt_endpoint(project_id: str, req: Optional[GenerateMusicPromptRequest] = None):
+    """
+    Phase 2: Generates an optimized Google Flow Music prompt with section cues.
+    """
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    assets = db.get_project_assets(project_id)
+    diary_days = (proj.config_override or {}).get("diary_days")
+
+    acts = req.acts if req and req.acts else None
+    if not acts:
+        est = music_gen.calculate_media_timeline_estimate(
+            project_id=project_id,
+            diary_days=diary_days,
+            assets=assets,
+            custom_config=proj.config_override
+        )
+        acts = est["acts"]
+        suggested_bpm = est["suggested_bpm"]
+        total_dur = est["total_duration_sec"]
+    else:
+        suggested_bpm = req.suggested_bpm or 118
+        total_dur = req.total_duration_sec or 30.0
+
+    style_vibe = req.style_vibe if req else None
+
+    prompt_data = await music_gen.generate_music_prompt_async(
+        acts=acts,
+        diary_text=proj.narrative_text,
+        suggested_bpm=suggested_bpm,
+        total_duration_sec=total_dur,
+        style_vibe=style_vibe
+    )
+
+    return prompt_data
+
+@router.post("/{project_id}/music/generate-lyrics")
+async def generate_music_lyrics_endpoint(project_id: str, req: Optional[GenerateMusicLyricsRequest] = None):
+    """
+    Phase 3: Generates proportional rhyming lyrics with explicit section timestamp cues.
+    """
+    proj = db.get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    assets = db.get_project_assets(project_id)
+    diary_days = (proj.config_override or {}).get("diary_days")
+
+    acts = req.acts if req and req.acts else None
+    if not acts:
+        est = music_gen.calculate_media_timeline_estimate(
+            project_id=project_id,
+            diary_days=diary_days,
+            assets=assets,
+            custom_config=proj.config_override
+        )
+        acts = est["acts"]
+
+    flow_p = req.flow_prompt if req and req.flow_prompt else ""
+    is_inst = req.is_instrumental if req and req.is_instrumental is not None else False
+
+    lyrics, out_prompt = await music_gen.generate_rhyming_lyrics_async(
+        acts=acts,
+        narrative_text=proj.narrative_text,
+        flow_prompt=flow_p,
+        is_instrumental=is_inst
+    )
+
+    return {
+        "lyrics": lyrics,
+        "prompt": out_prompt,
+        "is_instrumental": is_inst
+    }
+
+@router.post("/{project_id}/music/synthesize-and-align", response_model=AudioTrackModel)
 @router.post("/{project_id}/generate-music", response_model=AudioTrackModel)
-async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
+async def generate_music_and_align(project_id: str, req: Optional[SynthesizeMusicAudioRequest] = None):
+    """
+    Phase 4 / Full Music Generation: Synthesizes preview audio track, separates vocal/accompaniment stems
+    with Demucs, extracts Librosa beat grid, and aligns lyrics with MMS-FA CTC forced alignment.
+    """
     proj = db.get_project(project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
 
     db.update_project_status(project_id, "generating_music")
     try:
-        await progress_tracker.emit(project_id, "music_gen", 15.0, "Structuring narrative acts and optimizing Google Flow Music prompt...")
-        diary_days = proj.config_override.get("diary_days") if proj.config_override else None
-        acts = music_gen.partition_narrative_to_acts(proj.narrative_text, diary_days=diary_days)
-        lyrics, gen_prompt = await music_gen.generate_rhyming_lyrics_async(
-            acts=acts,
-            narrative_text=proj.narrative_text,
-            is_instrumental=bool(req.is_instrumental)
+        assets = db.get_project_assets(project_id)
+        diary_days = (proj.config_override or {}).get("diary_days")
+
+        # Run timeline estimate to determine exact duration & acts if not provided
+        est = music_gen.calculate_media_timeline_estimate(
+            project_id=project_id,
+            diary_days=diary_days,
+            assets=assets,
+            custom_config=proj.config_override
         )
 
-        prompt = req.prompt or gen_prompt
+        acts = est["acts"]
+        bpm = float(req.bpm if req and req.bpm else est["suggested_bpm"])
+        duration = float(req.duration_sec if req and req.duration_sec else est["total_duration_sec"])
+        is_inst = bool(req.is_instrumental if req and req.is_instrumental is not None else False)
 
-        bpm = req.bpm or 120.0
-        duration = req.duration_sec or 30.0
+        prompt = req.prompt if req and req.prompt else None
+        lyrics = req.lyrics if req and req.lyrics else None
+
+        if not prompt or not lyrics:
+            await progress_tracker.emit(project_id, "music_gen", 15.0, "Structuring narrative acts and optimizing Google Flow Music prompt...")
+            gen_lyrics, gen_prompt = await music_gen.generate_rhyming_lyrics_async(
+                acts=acts,
+                narrative_text=proj.narrative_text,
+                flow_prompt=prompt or "",
+                is_instrumental=is_inst
+            )
+            lyrics = lyrics or gen_lyrics
+            prompt = prompt or gen_prompt
+        else:
+            lyrics = music_gen.enforce_acts_timeline_on_lyrics(acts, lyrics, is_inst)
 
         loop = asyncio.get_running_loop()
         def on_synth_progress(msg: str, pct: float):
@@ -583,7 +805,7 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
             prompt=prompt,
             bpm=bpm,
             target_duration_sec=duration,
-            is_instrumental=req.is_instrumental,
+            is_instrumental=is_inst,
             progress_callback=on_synth_progress
         )
 
@@ -598,11 +820,19 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
         track_bpm, beat_grid, downbeats = aligner.extract_beat_grid(audio_files["master_path"])
 
         await progress_tracker.emit(project_id, "aligning", 95.0, "Aligning lyrics with MMS_FA CTC trellis...")
-        aligned_words = aligner.align_lyrics_mms_fa(
-            vocal_path=stems["vocals"],
-            lyrics_text=lyrics,
-            beat_grid=beat_grid
-        )
+        aligned_words = []
+        if lyrics:
+            if not is_inst:
+                aligned_words = aligner.align_lyrics_mms_fa(
+                    vocal_path=stems["vocals"],
+                    lyrics_text=lyrics,
+                    beat_grid=beat_grid
+                )
+            else:
+                aligned_words = aligner.align_instrumental_narration_subtitles(
+                    subtitles_text=lyrics,
+                    beat_grid=beat_grid
+                )
 
         track_id = f"trk_{project_id}"
         track = AudioTrackModel(
@@ -613,7 +843,7 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
             accompaniment_stem_path=str(stems["accompaniment"].resolve()),
             prompt=prompt,
             lyrics=lyrics,
-            is_instrumental=req.is_instrumental or False,
+            is_instrumental=is_inst,
             bpm=track_bpm,
             beat_grid=beat_grid,
             downbeats=downbeats,
@@ -629,47 +859,55 @@ async def generate_music_and_align(project_id: str, req: GenerateMusicRequest):
         db.update_project_status(project_id, "error", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/{project_id}/upload-audio", response_model=AudioTrackModel)
-async def upload_custom_audio(
+@router.post("/{project_id}/upload-custom-audio", response_model=AudioTrackModel)
+async def upload_custom_audio_and_align(
     project_id: str,
     file: UploadFile = File(...),
     bpm: Optional[float] = Form(None),
-    is_instrumental: Optional[bool] = Form(False)
+    is_instrumental: bool = Form(False)
 ):
-    """Uploads external audio track (e.g. from Google Flow Music / Lyria) and processes stems & alignment."""
+    """
+    Accepts user-uploaded audio, runs Demucs stem separation, Librosa beat tracking,
+    and MMS-FA lyric alignment (or instrumental narration subtitle timing).
+    """
     proj = db.get_project(project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
 
     settings = get_settings()
-    proj_out_dir = settings.output_dir / project_id
-    proj_out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = settings.output_dir / project_id
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    master_path = proj_out_dir / f"master{Path(file.filename).suffix}"
+    master_path = out_dir / "master.wav"
     with open(master_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    db.update_project_status(project_id, "aligning")
+    db.update_project_status(project_id, "separating_stems")
     try:
-        await progress_tracker.emit(project_id, "aligning", 30.0, "Demixing stems with Demucs from uploaded audio...")
-        stems = aligner.separate_stems_demucs(master_path=master_path, output_dir=proj_out_dir)
+        await progress_tracker.emit(project_id, "separating_stems", 40.0, "Separating audio stems with Demucs HTDemucs...")
+        stems = aligner.separate_stems_demucs(master_path, out_dir)
 
-        await progress_tracker.emit(project_id, "aligning", 60.0, "Detecting beats and tempo from custom audio...")
+        await progress_tracker.emit(project_id, "beat_tracking", 70.0, "Tracking Librosa beat grid...")
         detected_bpm, beat_grid, downbeats = aligner.extract_beat_grid(master_path)
-        final_bpm = bpm if bpm and bpm > 0 else detected_bpm
+        final_bpm = float(bpm) if bpm and bpm > 0 else detected_bpm
 
         existing_track = db.get_audio_track(project_id)
         lyrics = existing_track.lyrics if existing_track else ""
-        prompt = existing_track.prompt if existing_track else "Custom uploaded audio"
 
-        await progress_tracker.emit(project_id, "aligning", 85.0, "Running phonetic MMS_FA forced alignment...")
+        await progress_tracker.emit(project_id, "aligning", 90.0, "Aligning lyrics & subtitles...")
         aligned_words = []
-        if lyrics and not is_instrumental:
-            aligned_words = aligner.align_lyrics_mms_fa(
-                vocal_path=stems["vocals"],
-                lyrics_text=lyrics,
-                beat_grid=beat_grid
-            )
+        if lyrics:
+            if not is_instrumental:
+                aligned_words = aligner.align_lyrics_mms_fa(
+                    vocal_path=stems["vocals"],
+                    lyrics_text=lyrics,
+                    beat_grid=beat_grid
+                )
+            else:
+                aligned_words = aligner.align_instrumental_narration_subtitles(
+                    subtitles_text=lyrics,
+                    beat_grid=beat_grid
+                )
 
         track_id = f"trk_{project_id}"
         track = AudioTrackModel(

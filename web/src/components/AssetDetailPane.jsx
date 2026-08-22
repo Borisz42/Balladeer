@@ -41,13 +41,14 @@ ChartJS.register(
   Filler
 );
 
-export default function AssetDetailPane({ project, asset, onAssetUpdated }) {
+export default function AssetDetailPane({ project, asset, timelineEstimate, onAssetUpdated, onToggleInclusion }) {
   const [caption, setCaption] = useState('');
   const [tagsText, setTagsText] = useState('');
   const [qualityScore, setQualityScore] = useState(7.0);
   const [isActive, setIsActive] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isReindexing, setIsReindexing] = useState(false);
+  const [isTogglingInclusion, setIsTogglingInclusion] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
 
@@ -481,6 +482,76 @@ export default function AssetDetailPane({ project, asset, onAssetUpdated }) {
             </div>
           </div>
         )}
+
+        {/* Music Timeline Inclusion Card */}
+        {(() => {
+          const incStatus = timelineEstimate?.asset_inclusion_status?.[asset.id];
+          const qVal = typeof qualityScore === 'number' ? qualityScore : (asset.quality_score || 7.0);
+          const relVal = typeof asset.relevance_score_daily === 'number' ? asset.relevance_score_daily : 0.0;
+          const autoScore = incStatus ? incStatus.inclusion_score : (relVal > 0 ? (0.5 * qVal + 0.5 * (relVal * 10)) : qVal);
+          const isIncluded = incStatus ? incStatus.is_included : (asset.is_active !== false);
+          const thresholdScore = incStatus ? incStatus.threshold_score : 7.0;
+          const rank = incStatus?.rank;
+          const totalInDay = incStatus?.total_in_day;
+
+          const handleToggleInclusionClick = async () => {
+            if (!onToggleInclusion || isTogglingInclusion) return;
+            setIsTogglingInclusion(true);
+            try {
+              const res = await onToggleInclusion(asset.id, !isIncluded, thresholdScore);
+              if (res?.asset) {
+                setQualityScore(typeof res.asset.quality_score === 'number' ? res.asset.quality_score : 7.0);
+                setIsActive(res.asset.is_active !== undefined ? res.asset.is_active : true);
+              }
+            } finally {
+              setIsTogglingInclusion(false);
+            }
+          };
+
+          return (
+            <div className={`p-2.5 rounded-xl border ${isIncluded ? 'bg-emerald-950/30 border-emerald-500/40' : 'bg-slate-900/80 border-slate-800'} space-y-2`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1">
+                  <Sparkles className={`w-3.5 h-3.5 ${isIncluded ? 'text-emerald-400' : 'text-slate-500'}`} />
+                  Timeline Auto-Inclusion
+                </span>
+                <button
+                  type="button"
+                  onClick={handleToggleInclusionClick}
+                  disabled={isTogglingInclusion}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition flex items-center gap-1 shadow-sm ${
+                    isIncluded
+                      ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                  }`}
+                >
+                  {isTogglingInclusion ? 'Updating...' : isIncluded ? '✓ Included in Timeline' : '+ Include in Timeline'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                <div className="bg-slate-950/80 p-1.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block text-[9px]">Basis Score</span>
+                  <span className="font-bold text-teal-300 text-xs">{autoScore.toFixed(1)} / 10.0</span>
+                  {rank && <span className="text-slate-500 text-[9px] block">Rank #{rank} of {totalInDay}</span>}
+                </div>
+                <div className="bg-slate-950/80 p-1.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block text-[9px]">Day Threshold</span>
+                  <span className={`font-bold text-xs ${autoScore >= thresholdScore ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {thresholdScore.toFixed(1)} Cut-off
+                  </span>
+                  <span className="text-slate-500 text-[9px] block">
+                    {autoScore >= thresholdScore ? 'Qualifies Top %' : 'Below Cut-off'}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[9px] text-slate-400 italic">
+                Formula: 50% Quality Score ({qVal.toFixed(1)}) + 50% Day Relevance ({(relVal * 10).toFixed(1)})
+              </p>
+            </div>
+          );
+        })()}
 
         {/* AI Caption & Concept */}
         <div className="space-y-1">
