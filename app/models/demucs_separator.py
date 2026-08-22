@@ -25,13 +25,21 @@ class DemucsSeparator:
         # Attempt to run demucs if available
         separated = False
         try:
+            import os
             import torch
             import demucs.pretrained
             import demucs.apply
+
+            # Prevent remote HF checks if model exists in local cache
+            hf_demucs_cache = Path.home() / ".cache" / "huggingface" / "hub" / "models--adefossez--HTDemucs"
+            local_weights = Path(self.settings.indexing.local_weights_dir) / "demucs"
+            if hf_demucs_cache.exists() or local_weights.exists():
+                os.environ["HF_HUB_OFFLINE"] = "1"
+
             # If htdemucs is available
             model = demucs.pretrained.get_model("htdemucs")
             # In full runtime, separate using torch
-            logger.info(f"Demucs model loaded for {master_path}")
+            logger.info(f"Demucs model loaded offline for {master_path}")
         except Exception as e:
             logger.debug(f"Demucs library note: {e}")
 
