@@ -554,9 +554,17 @@ class MusicGenerator:
         if cleaned.lower().startswith("instrumental"):
             return None
 
-        # 5. Must have at least 3 words to be a sung line
+        # 5. Reject lines that are too long to be a single song lyric line or contain raw camera/OCR text
         words = cleaned.split()
-        if len(words) < 3:
+        if len(words) < 3 or len(words) > 16:
+            return None
+
+        technical_cues = [
+            "qr code", "metal detector", "white card", "photo of", "picture of",
+            "close-up", "close up", "screenshot", "camera", "standing near", "holds a",
+            "holding a", "seen in the", "image shows", "video shows"
+        ]
+        if any(cue in cleaned.lower() for cue in technical_cues):
             return None
 
         return cleaned
@@ -789,11 +797,7 @@ class MusicGenerator:
                     lines_to_use = extracted_verse_lines[vocal_block_idx]
                     vocal_block_idx += 1
 
-                # If no valid lines found in LLM extraction, generate rich rhyming lines
-                if not lines_to_use:
-                    lines_to_use = self._create_fallback_rhyming_verse(act, vocal_block_idx, dur)
-
-                # Limit line count proportional to section duration (e.g. ~4s per line of singing)
+                # Filter candidate lines
                 max_lines = 2 if dur <= 10.0 else (3 if dur <= 16.0 else 4)
                 formatted = []
                 for l in lines_to_use[:max_lines]:
@@ -801,7 +805,8 @@ class MusicGenerator:
                     if c_line and not c_line.startswith("["):
                         formatted.append(c_line)
 
-                if not formatted:
+                # If fewer than 2 valid rhyming lines exist, fallback to curated rhyming verse
+                if len(formatted) < 2:
                     formatted = self._create_fallback_rhyming_verse(act, vocal_block_idx, dur)
 
                 output_blocks.append(tag + "\n" + "\n".join(formatted))

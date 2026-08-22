@@ -297,4 +297,38 @@ def test_enforce_acts_timeline_no_sentence_cutoffs():
         "Our journey begins as morning light breaks across the horizon."
     } or len(intro_text.split()) >= 6
 
+def test_enforce_acts_timeline_rejects_raw_caption_and_enforces_rhyme():
+    acts = [
+        {"act_type": "Intro", "title": "Acoustic Intro Swell", "start_sec": 0.0, "end_sec": 4.0, "duration_sec": 4.0, "is_instrumental": True},
+        {"act_type": "Verse 1", "title": "Day 1", "start_sec": 4.0, "end_sec": 21.0, "duration_sec": 17.0, "is_instrumental": False},
+        {"act_type": "Outro", "title": "Acoustic Outro Fade", "start_sec": 21.0, "end_sec": 26.0, "duration_sec": 5.0, "is_instrumental": True}
+    ]
+
+    # Simulating raw output containing a technical camera/OCR caption
+    raw_with_ocr = (
+        "[0:00-0:04] [Intro: Acoustic Intro Swell] (4s)\n"
+        "[Instrumental - Atmospheric acoustic guitar swell.]\n\n"
+        "[0:04-0:21] [Verse 1: Day 1] (17s)\n"
+        "In the morning's gentle swell, our hearts align,\n"
+        "A person holds a white card with text and a qr code near a metal detector at the entrance to Le Pré-Saint-Gervais station.\n\n"
+        "[0:21-0:26] [Outro: Acoustic Outro Fade] (5s)\n"
+        "[Instrumental - Acoustic guitar fade-out.]"
+    )
+
+    clean_lyrics = music_gen.enforce_acts_timeline_on_lyrics(acts, raw_with_ocr, is_instrumental=False)
+
+    # Must NOT contain the raw technical OCR phrase
+    assert "qr code" not in clean_lyrics.lower()
+    assert "white card" not in clean_lyrics.lower()
+    assert "metal detector" not in clean_lyrics.lower()
+
+    # Must contain valid rhyming lines for Verse 1
+    verse_block = clean_lyrics.split("[0:04-0:21] [Verse 1: Day 1] (17s)\n")[1].split("\n\n")[0]
+    lines = [l.strip() for l in verse_block.split("\n") if l.strip()]
+    assert len(lines) >= 2
+    for l in lines:
+        assert len(l.split()) >= 4
+        assert len(l.split()) <= 16
+
+
 
