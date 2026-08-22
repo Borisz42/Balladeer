@@ -5,6 +5,7 @@ from app.main import app
 from app.database.database import db
 from app.database.models import ProjectModel, MediaAssetModel
 from app.pipeline.music_gen import music_gen
+from app.pipeline.aligner import aligner
 
 client = TestClient(app)
 
@@ -398,6 +399,28 @@ def test_enforce_acts_timeline_instrumental_subtitle_line_breaks():
     assert len(sub_lines) >= 2
     for l in sub_lines:
         assert len(l.split()) <= 16
+
+def test_align_instrumental_narration_subtitles_valid_models():
+    subs = (
+        "[0:00-0:04] [Intro: Intro Swell] (4s)\n"
+        "Our journey begins as morning light breaks.\n\n"
+        "[0:04-0:22] [Verse 1: Day 1] (18s)\n"
+        "Walking through the cobblestone streets we explore the lively markets.\n"
+        "Every corner reveals colorful cafes and French architecture.\n\n"
+        "[0:22-0:26] [Outro: Outro Fade] (4s)\n"
+        "As the day comes to a close we hold onto memories."
+    )
+
+    aligned = aligner.align_instrumental_narration_subtitles(subs, bpm=118)
+    assert len(aligned) > 0
+    # Every word must be a valid AlignedWordModel instance with non-null start, end, snapped_start, snapped_end
+    for w in aligned:
+        assert isinstance(w.word, str) and len(w.word) > 0
+        assert w.start >= 0.0
+        assert w.end > w.start
+        assert w.snapped_start >= 0.0
+        assert w.snapped_end >= w.snapped_start
+
 
 
 

@@ -193,7 +193,7 @@ export default function MusicStudio({
     }
   };
 
-  // Phase 4: Synthesize Audio & Align Stems
+  // Phase 4: Analyze Audio & Align Stems / Subtitles
   const handleSynthesizeAudio = async () => {
     if (!onGenerateMusic) return;
     setIsSynthesizing(true);
@@ -205,7 +205,7 @@ export default function MusicStudio({
         lyrics: lyrics.trim() || undefined,
         is_instrumental: isInstrumental
       });
-      setStatusNote('Audio synthesized, stems demixed and lyrics aligned!');
+      setStatusNote('Audio analyzed, stems separated and subtitles/lyrics aligned!');
       setTimeout(() => setStatusNote(null), 3500);
     } finally {
       setIsSynthesizing(false);
@@ -248,7 +248,7 @@ export default function MusicStudio({
       const finalLyrics = lRes.lyrics || lyrics;
       setLyrics(finalLyrics);
 
-      // 4. Synthesize & Align
+      // 4. Analyze & Align
       await onGenerateMusic({
         bpm: parseFloat(estBpm),
         duration_sec: parseFloat(estDur),
@@ -805,7 +805,7 @@ export default function MusicStudio({
                     className="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold px-2.5 py-0.5 rounded text-[9px] transition shadow-sm"
                   >
                     <RotateCw className={`w-2.5 h-2.5 ${isSynthesizing ? 'animate-spin' : ''}`} />
-                    <span>{isSynthesizing ? 'Synthesizing...' : '4. Synthesize & Align'}</span>
+                    <span>{isSynthesizing ? 'Analyzing & Aligning...' : '4. Analyze & Align'}</span>
                   </button>
                 </div>
               </div>
@@ -859,7 +859,7 @@ export default function MusicStudio({
                 </div>
               ) : (
                 <div className="bg-slate-900/60 rounded-lg p-3 border border-slate-800 text-center text-[10px] text-slate-500">
-                  No audio synthesized or uploaded yet. Click '4. Synthesize & Align' or 'Upload Audio'.
+                  No audio analyzed or uploaded yet. Click '4. Analyze & Align' or 'Upload Audio'.
                 </div>
               )}
             </div>

@@ -52,7 +52,8 @@ class AudioAligner:
     def align_instrumental_narration_subtitles(
         self,
         subtitles_text: str,
-        beat_grid: List[float]
+        beat_grid: Optional[List[float]] = None,
+        bpm: Optional[float] = None
     ) -> List[AlignedWordModel]:
         """
         Synthesizes timed word-level alignment for instrumental spoken story subtitles,
@@ -61,22 +62,25 @@ class AudioAligner:
         import re
         blocks = [b.strip() for b in subtitles_text.split("\n\n") if b.strip()]
         aligned_words: List[AlignedWordModel] = []
+        b_grid = beat_grid or []
 
-        for block in blocks:
+        for line_idx, block in enumerate(blocks):
+            # Parse timestamp tag: [0:00-0:04] or [00:00.00-00:04.00]
             lines = [l.strip() for l in block.split("\n") if l.strip()]
             if not lines:
                 continue
 
-            # Check for header tag: [0:04-0:28] [Verse 1: ...] (24s)
-            t_match = re.search(r"\[(\d+):(\d+(?:\.\d+)?)\s*-\s*(\d+):(\d+(?:\.\d+)?)\]", lines[0])
-            if t_match:
-                start_sec = int(t_match.group(1)) * 60 + float(t_match.group(2))
-                end_sec = int(t_match.group(3)) * 60 + float(t_match.group(4))
-                body_lines = lines[1:]
+            header = lines[0]
+            body_lines = lines[1:] if len(lines) > 1 else []
+
+            # Extract start and end seconds
+            match = re.search(r"\[(\d+):(\d+(?:\.\d+)?)\s*-\s*(\d+):(\d+(?:\.\d+)?)\]", header)
+            if match:
+                m1, s1, m2, s2 = match.groups()
+                start_sec = float(m1) * 60.0 + float(s1)
+                end_sec = float(m2) * 60.0 + float(s2)
             else:
-                start_sec = 0.0
-                end_sec = 10.0
-                body_lines = lines
+                continue
 
             # Extract words from body lines
             raw_text = " ".join(body_lines)
@@ -91,15 +95,19 @@ class AudioAligner:
             cur_time = start_sec
 
             for w in words:
-                w_start = round(cur_time, 3)
-                w_end = round(cur_time + word_dur, 3)
+                w_start = round(cur_time, 4)
+                w_end = round(cur_time + word_dur, 4)
+                s_start, b_idx = self.snap_to_beat(w_start, b_grid) if b_grid else (w_start, None)
+                s_end, _ = self.snap_to_beat(w_end, b_grid) if b_grid else (w_end, None)
                 aligned_words.append(
                     AlignedWordModel(
                         word=w,
-                        start_sec=w_start,
-                        end_sec=w_end,
-                        confidence=1.0,
-                        beat_idx=None
+                        start=w_start,
+                        end=w_end,
+                        snapped_start=s_start,
+                        snapped_end=max(s_start + 0.1, s_end),
+                        beat_index=b_idx,
+                        line_index=line_idx
                     )
                 )
                 cur_time += word_dur
