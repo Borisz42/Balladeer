@@ -566,15 +566,22 @@ class LocalVLMRunner:
     # Text Generation & Synthesis Methods
     # -------------------------------------------------------------------------
 
-    def generate_text(self, prompt: str, system_prompt: Optional[str] = None, max_tokens: int = 280) -> str:
-        """Generates fast, high-quality text using cached KV states and greedy / low-temperature decoding."""
+    def generate_text(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 280,
+        temperature: float = 0.0,
+        top_p: float = 0.9
+    ) -> str:
+        """Generates fast, high-quality text using cached KV states with greedy or sampled decoding."""
         model, processor = self._get_model_and_processor()
         if model is None or processor is None:
             return ""
 
         try:
             logger.info("=" * 65)
-            logger.info(f"[Local-AI] [LLM-Call] Dispatching text generation (max_tokens={max_tokens}):")
+            logger.info(f"[Local-AI] [LLM-Call] Dispatching text generation (max_tokens={max_tokens}, temp={temperature}):")
             if system_prompt:
                 logger.info(f"[Local-AI] [System-Prompt]:\n{system_prompt}")
             logger.info(f"[Local-AI] [User-Prompt]:\n{prompt}")
@@ -595,14 +602,23 @@ class LocalVLMRunner:
             tokenizer_inner = getattr(processor, "tokenizer", processor)
             eos_id = getattr(tokenizer_inner, "eos_token_id", None) or getattr(processor, "eos_token_id", None)
 
+            gen_kwargs = {
+                "max_new_tokens": max_tokens,
+                "use_cache": True,
+                "pad_token_id": eos_id,
+                "eos_token_id": eos_id
+            }
+            if temperature > 0.01:
+                gen_kwargs["do_sample"] = True
+                gen_kwargs["temperature"] = float(temperature)
+                gen_kwargs["top_p"] = float(top_p)
+            else:
+                gen_kwargs["do_sample"] = False
+
             with torch.inference_mode():
                 generated = model.generate(
                     **model_inputs,
-                    max_new_tokens=max_tokens,
-                    do_sample=False,
-                    use_cache=True,
-                    pad_token_id=eos_id,
-                    eos_token_id=eos_id
+                    **gen_kwargs
                 )
             new_ids = generated[0][prompt_len:]
             result = processor.decode(new_ids, skip_special_tokens=True).strip()
@@ -697,21 +713,27 @@ class LocalVLMRunner:
                 "As the sun sets, we hold onto memories from an unforgettable day."
             )
             prompt = (
+                f"INSTRUCTIONS:\n"
+                f"Write timed spoken documentary narrative voiceover subtitles (~2.2 words per second speaking tempo) "
+                f"describing the travel journey and scenes for each section.\n\n"
                 f"Travel Story & Scene Captions:\n{narrative_text.strip()}\n\n"
                 f"Required Section Timeline:\n{timeline_schedule}\n\n"
                 "Write the timed spoken narrative subtitles for each section now:"
             )
-            out_subs = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=650)
+            out_subs = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=650, temperature=0.4)
             final_subs = out_subs.strip() if out_subs and "[" in out_subs else heuristic_lyrics
             return final_subs, heuristic_prompt
 
         system_prompt = (
-            "You are an expert songwriter and poet. Write poetic, evocative rhyming song lyrics (AABB rhyme scheme) "
+            "You are an expert songwriter and poet. Write poetic, evocative rhyming song lyrics with strict AABB rhyme schemes "
             "based on the travel story and section timeline.\n\n"
-            "CRITICAL RULES:\n"
-            "1. For each [Verse] section, you MUST write 2 to 4 full poetic rhyming lines (at least 7-10 words per line) telling the story. Do NOT just repeat the section title or tags.\n"
-            "2. For [Intro] and [Outro] instrumental sections, write [Instrumental - acoustic guitar description].\n"
-            "3. Do NOT use markdown bolding (**) or hashtags (#). Use plain text lines.\n\n"
+            "CRITICAL RHYMING RULES:\n"
+            "1. Every Verse MUST have strict rhyming pairs at the end of each line (AABB rhyme scheme).\n"
+            "   - Line 1 and Line 2 MUST rhyme with each other (e.g., light / sight, sun / begun, eyes / skies).\n"
+            "   - Line 3 and Line 4 MUST rhyme with each other (e.g., street / meet, way / day, hold / gold).\n"
+            "2. For each [Verse] section, write 2 to 4 full poetic rhyming lines (at least 7-10 words per line). Do NOT write unrhymed prose.\n"
+            "3. For [Intro] and [Outro] instrumental sections, write [Instrumental - acoustic guitar description].\n"
+            "4. Do NOT use markdown bolding (**) or hashtags (#). Use plain text lines.\n\n"
             "EXAMPLE OUTPUT FORMAT:\n"
             "[0:00-0:04] [Intro] (4s)\n"
             "[Instrumental - Gentle acoustic guitar strumming]\n\n"
@@ -724,12 +746,15 @@ class LocalVLMRunner:
             "[Instrumental - Warm acoustic fade-out]"
         )
         prompt = (
+            f"INSTRUCTIONS:\n"
+            f"Write poetic rhyming song lyrics (AABB rhyme scheme where Line 1 rhymes with Line 2, and Line 3 rhymes with Line 4). "
+            f"Every line must end with a rhyming word!\n\n"
             f"Travel Story & Captions:\n{narrative_text.strip()}\n\n"
             f"Required Section Timeline:\n{timeline_schedule}\n\n"
-            "Write the full rhyming song lyrics for each section now:"
+            "Write the full rhyming song lyrics with AABB rhyming lines for each section now:"
         )
 
-        out = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=650)
+        out = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=650, temperature=0.7)
         if out and ("[" in out or "verse" in out.lower()):
             if "[music prompt]" in out.lower():
                 parts = re.split(r"\[music prompt\]", out, flags=re.IGNORECASE)
