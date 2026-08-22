@@ -329,6 +329,7 @@ class GoogleAIStudioClient:
                 f"REQUIREMENTS:\n"
                 f"1. Generate timed spoken narrative subtitles for each section matching normal speaking tempo (~2.2 words per second). "
                 f"Describe the travel story with specific focus on what is seen in the photos and video scenes. Use timestamp headers like [0:04-0:15] [Verse 1: Day 1 - Paris].\n"
+                f"   - For 4s Intro and Outro sections, write EXACTLY ONE short, complete grammatical sentence of 6 to 9 words (e.g. 'Our journey begins as morning light breaks across the horizon.'). Never leave partial or cut-off sentences.\n"
                 f"2. Generate an 'optimized_flow_music_prompt' tailored specifically for Google Flow Music (MusicFX / Lyria) "
                 f"for background instrumental music (e.g. Acoustic Indie Folk, Warm Lo-Fi, Cinematic Ambient) with tempo (BPM) and section breakdown.\n"
                 f"3. Return ONLY a valid JSON object with keys: 'lyrics' (full formatted timed narrative subtitles string with timestamp headers), "

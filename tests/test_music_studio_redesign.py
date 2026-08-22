@@ -1,3 +1,4 @@
+import re
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -260,4 +261,40 @@ def test_enforce_acts_timeline_instrumental_spoken_subtitles():
     verse_text = clean_subs.split("[0:04-0:16] [Verse 1: Paris Journey] (12s)\n")[1].split("\n\n")[0]
     words = verse_text.split()
     assert 15 <= len(words) <= 35
+
+def test_enforce_acts_timeline_no_sentence_cutoffs():
+    acts = [
+        {"act_type": "Intro", "title": "Acoustic Intro Swell", "start_sec": 0.0, "end_sec": 4.0, "duration_sec": 4.0},
+        {"act_type": "Verse 1", "title": "Day 1", "start_sec": 4.0, "end_sec": 21.0, "duration_sec": 17.0},
+        {"act_type": "Outro", "title": "Acoustic Outro Fade", "start_sec": 21.0, "end_sec": 26.0, "duration_sec": 5.0}
+    ]
+
+    # Simulating the raw LLM output with long run-on sentences that were previously cut off
+    raw_with_runons = (
+        "[0:00-0:04] [Intro: Acoustic Intro Swell] (4s)\n"
+        "The sun rises over the sleepy town, casting a warm golden glow across the quiet streets.\n\n"
+        "[0:04-0:21] [Verse 1: Day 1] (17s)\n"
+        "We begin our journey at Le Pré-Saint-Gervais station, where a person holds a white card with text and a QR code near a metal detector. "
+        "The scene is bustling with activity, capturing the essence of daily life in this charming French town.\n\n"
+        "[0:21-0:26] [Outro: Acoustic Outro Fade] (5s)\n"
+        "As the day unfolds, we find ourselves amidst the picturesque landscape and peaceful atmosphere."
+    )
+
+    clean_subs = music_gen.enforce_acts_timeline_on_lyrics(acts, raw_with_runons, is_instrumental=True)
+    
+    # Must NOT contain cutoffs like 'casting a.' or 'amidst the picturesque.'
+    assert "casting a." not in clean_subs
+    assert "the picturesque." not in clean_subs
+    assert not re.search(r"\b(a|an|the|of|to|in|on|with|and|as|casting|amidst)\.\s*$", clean_subs, re.MULTILINE)
+    
+    # Intro must be a complete sentence
+    intro_block = clean_subs.split("\n\n")[0]
+    assert intro_block.endswith(".")
+    # Intro line must be grammatically complete
+    intro_text = intro_block.split("\n")[1]
+    assert intro_text in {
+        "The sun rises over the sleepy town.",
+        "Our journey begins as morning light breaks across the horizon."
+    } or len(intro_text.split()) >= 6
+
 

@@ -599,6 +599,82 @@ class MusicGenerator:
         line_count = 2 if dur <= 10.0 else (3 if dur <= 16.0 else 4)
         return selected[:line_count]
 
+    def _trim_narration_to_complete_sentences(self, text: str, dur: float, act_type: str = "") -> str:
+        """
+        Trims or fits spoken narrative subtitles so they ALWAYS form complete, grammatical,
+        poetic sentences without awkward cutoffs, trailing commas, or hanging prepositions/articles.
+        """
+        cleaned = re.sub(r"[*`#_~>]+", " ", text)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if not cleaned:
+            return ""
+
+        # Remove hanging bracket tags if any
+        cleaned = re.sub(r"\[.*?\]", "", cleaned).strip()
+
+        # Split into genuine sentences
+        raw_sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", cleaned) if s.strip()]
+        if not raw_sentences:
+            raw_sentences = [cleaned]
+
+        target_words = max(6, int(dur * 2.3))
+
+        # Check special case for short Intro / Outro (dur <= 5.0)
+        is_intro_or_outro = any(k in act_type.lower() for k in ("intro", "outro")) or dur <= 5.0
+        if is_intro_or_outro:
+            # Look for a short complete sentence (4 to 12 words)
+            for s in raw_sentences:
+                w_count = len(s.split())
+                if 4 <= w_count <= 12:
+                    # Strip any trailing comma or dangling punctuation
+                    s = re.sub(r"[,;:\-–—]+$", "", s).strip()
+                    if not s.endswith((".", "!", "?")):
+                        s += "."
+                    # Check if last word is a hanging word
+                    last_w = s.split()[-1].lower().rstrip(".,;:!?")
+                    if last_w not in {"a", "an", "the", "of", "to", "in", "on", "with", "and", "as", "for", "at", "by", "from", "casting", "amidst", "near", "where", "which", "that"}:
+                        return s
+
+            # If sentence is longer, try breaking cleanly at a comma/clause boundary
+            first_s = raw_sentences[0]
+            clauses = [c.strip() for c in re.split(r"[,;—–\-]", first_s) if c.strip()]
+            for c in clauses:
+                c_words = c.split()
+                if 4 <= len(c_words) <= 10:
+                    last_w = c_words[-1].lower().rstrip(".,;:!?")
+                    if last_w not in {"a", "an", "the", "of", "to", "in", "on", "with", "and", "as", "for", "at", "by", "from", "casting", "amidst", "near", "where", "which", "that", "picturesque"}:
+                        return c + "."
+
+            # Fallback to curated short complete sentences
+            if "intro" in act_type.lower():
+                return "Our journey begins as morning light breaks across the horizon."
+            elif "outro" in act_type.lower():
+                return "As the day comes to a close, we hold onto memories from an unforgettable journey."
+            else:
+                return "A wonderful moment captured as the adventure continues."
+
+        # For regular duration sections (dur > 5.0s):
+        accumulated: List[str] = []
+        cur_word_count = 0
+
+        for s in raw_sentences:
+            w_count = len(s.split())
+            if cur_word_count + w_count <= target_words + 8 or not accumulated:
+                accumulated.append(s)
+                cur_word_count += w_count
+            else:
+                break
+
+        res = " ".join(accumulated).strip()
+        res = re.sub(r"[,;:\-–—]+$", "", res).strip()
+        if not res.endswith((".", "!", "?")):
+            last_w = res.split()[-1].lower().rstrip(".,;:!?")
+            if last_w in {"a", "an", "the", "of", "to", "in", "on", "with", "and", "as", "for", "at", "by", "from", "casting", "amidst", "near", "where", "which", "that"}:
+                res = " ".join(res.split()[:-1])
+            res += "."
+
+        return res
+
     def _create_fallback_narration_subtitles(self, act: Dict[str, Any], verse_idx: int, dur: float) -> str:
         """
         Synthesizes timed spoken storytelling narration subtitles for instrumental mode,
@@ -610,9 +686,9 @@ class MusicGenerator:
             title = f"Day {day_num}"
 
         act_type = (act.get("act_type") or "Section").lower()
-        if "intro" in act_type:
+        if "intro" in act_type or dur <= 5.0 and verse_idx == 0:
             return "Our journey begins as morning light breaks across the horizon and the adventure unfolds."
-        if "outro" in act_type:
+        if "outro" in act_type or dur <= 5.0:
             return "As the day comes to a close, we hold onto memories from an unforgettable journey."
 
         narrations = [
@@ -634,14 +710,7 @@ class MusicGenerator:
             )
         ]
         chosen = narrations[verse_idx % len(narrations)]
-        target_words = max(8, int(dur * 2.2))
-        words = chosen.split()
-        if len(words) > target_words + 3:
-            truncated = " ".join(words[:target_words])
-            if not truncated.endswith((".", "!", "?")):
-                truncated += "."
-            return truncated
-        return chosen
+        return self._trim_narration_to_complete_sentences(chosen, dur, act.get("act_type", ""))
 
     def enforce_acts_timeline_on_lyrics(
         self,
@@ -652,7 +721,7 @@ class MusicGenerator:
         """
         Parses whatever lyrics/lines the LLM generated and strictly aligns them
         onto the EXACT calculated section timestamps, headers, and duration limits.
-        Prevents LLM timestamp hallucination, token cutoff damage, or title repetitions.
+        Prevents LLM timestamp hallucination, token cutoff damage, or sentence truncation.
         """
         if not acts:
             return raw_lyrics
@@ -702,19 +771,11 @@ class MusicGenerator:
                     vocal_block_idx += 1
                     joined = " ".join(candidate_lines)
                     joined = re.sub(r"\[.*?\]", "", joined).strip()
-                    if len(joined.split()) >= 4:
-                        narration_text = joined
+                    if len(joined.split()) >= 3:
+                        narration_text = self._trim_narration_to_complete_sentences(joined, dur, act_type)
 
                 if not narration_text:
                     narration_text = self._create_fallback_narration_subtitles(act, act_idx, dur)
-
-                # Calibrate word count to normal speaking tempo (~2.2 words per second)
-                target_words = max(6, int(dur * 2.4))
-                w_list = narration_text.split()
-                if len(w_list) > target_words + 4:
-                    narration_text = " ".join(w_list[:target_words])
-                    if not narration_text.endswith((".", "!", "?")):
-                        narration_text += "."
 
                 output_blocks.append(f"{tag}\n{narration_text}")
             elif act.get("is_instrumental"):
