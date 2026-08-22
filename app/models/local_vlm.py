@@ -637,8 +637,8 @@ class LocalVLMRunner:
             "You are an expert music producer. Create an inspiring 1-2 sentence Google Flow Music prompt "
             "specifying genre, instruments, tempo (BPM), and section breakdown."
         )
-        prompt = f"Montage ({int(total_duration_sec)}s, {suggested_bpm} BPM): {narrative_text[:200]}"
-        out_prompt = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=120)
+        prompt = f"Montage ({int(total_duration_sec)}s, {suggested_bpm} BPM):\n{narrative_text.strip()}"
+        out_prompt = self.generate_text(prompt, system_prompt=system_prompt, max_tokens=180)
         final_prompt = out_prompt.strip() if out_prompt and len(out_prompt.strip()) > 20 else heuristic_prompt
 
         return {
@@ -697,7 +697,7 @@ class LocalVLMRunner:
                 "As the sun sets, we hold onto memories from an unforgettable day."
             )
             prompt = (
-                f"Travel Story & Scene Captions:\n{narrative_text[:450]}\n\n"
+                f"Travel Story & Scene Captions:\n{narrative_text.strip()}\n\n"
                 f"Required Section Timeline:\n{timeline_schedule}\n\n"
                 "Write the timed spoken narrative subtitles for each section now:"
             )
@@ -724,7 +724,7 @@ class LocalVLMRunner:
             "[Instrumental - Warm acoustic fade-out]"
         )
         prompt = (
-            f"Travel Story & Captions: {narrative_text[:400]}\n\n"
+            f"Travel Story & Captions:\n{narrative_text.strip()}\n\n"
             f"Required Section Timeline:\n{timeline_schedule}\n\n"
             "Write the full rhyming song lyrics for each section now:"
         )

@@ -234,7 +234,7 @@ class GoogleAIStudioClient:
             f"Generate an optimized musical style prompt tailored for Google Flow Music (MusicFX / Lyria) "
             f"for a travel montage video with exact target duration {int(total_duration_sec)} seconds and tempo {suggested_bpm} BPM.\n\n"
             f"{vibe_hint}"
-            f"DIARY CONTEXT:\n{narrative_text[:800]}\n\n"
+            f"DIARY CONTEXT:\n{narrative_text.strip()}\n\n"
             f"SONG SECTION TIMELINE:\n{struct_str}\n\n"
             f"REQUIREMENTS:\n"
             f"1. Generate a single-paragraph 'flow_prompt' specifying genre, key instruments (e.g. acoustic guitar, cello, percussion), "
