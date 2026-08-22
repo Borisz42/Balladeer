@@ -51,7 +51,7 @@ export default function TimelineEditor({
   const rawSubMode = lStyle.subtitle_mode;
   const subtitleMode = (rawSubMode && rawSubMode !== 'auto')
     ? rawSubMode
-    : (audioTrack?.is_instrumental ? 'narrative_descriptions' : 'karaoke_lyrics');
+    : 'karaoke_lyrics';
 
   const totalDuration = audioTrack?.beat_grid?.length
     ? (audioTrack.beat_grid[audioTrack.beat_grid.length - 1] || 30.0) + 1.0

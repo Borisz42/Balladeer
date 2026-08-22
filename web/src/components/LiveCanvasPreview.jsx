@@ -243,7 +243,7 @@ export default function LiveCanvasPreview({
     const rawSubtitleMode = lStyle.subtitle_mode;
     const subtitleMode = (rawSubtitleMode && rawSubtitleMode !== 'auto')
       ? rawSubtitleMode
-      : (audioTrack?.is_instrumental ? 'narrative_descriptions' : 'karaoke_lyrics');
+      : 'karaoke_lyrics';
 
     const highlightColor = lStyle.highlight_color || '#2dd4bf';
     const fontFamily = lStyle.font_family || 'Inter';
@@ -286,7 +286,7 @@ export default function LiveCanvasPreview({
       ctx.fillText(`🏷️ ACT: ${titleText}`, targetW / 2, subY + 8);
       ctx.restore();
     } else if (subtitleMode === 'karaoke_lyrics') {
-      // 3. Line-by-line Karaoke synced lyrics
+      // 3. Line-by-line Karaoke synced lyrics or Timed Story Subtitles
       const lineToRender = activeLine || (activePhraseWords.length > 0 ? {
         words: activePhraseWords,
         start: activePhraseWords[0].snapped_start,
@@ -305,12 +305,14 @@ export default function LiveCanvasPreview({
 
         ctx.font = `bold 15px ${fontFamily}, sans-serif`;
         const enableHighlight = lStyle.enable_word_highlight !== false;
+        const iconPrefix = audioTrack?.is_instrumental ? '🎙️' : '🎶';
 
         if (!enableHighlight) {
+          // Clean full line without word highlight
           ctx.fillStyle = '#ffffff';
           ctx.textAlign = 'center';
           const lineText = lineToRender.words.map((w) => w.word).join(' ');
-          ctx.fillText(`🎶 ${lineText}`, targetW / 2, subY + 8);
+          ctx.fillText(`${iconPrefix} ${lineText}`, targetW / 2, subY + 8);
         } else {
           const lineWords = lineToRender.words;
           const spaceWidth = ctx.measureText(' ').width;

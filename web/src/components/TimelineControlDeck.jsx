@@ -123,7 +123,7 @@ export default function TimelineControlDeck({
     if (rawSubMode && rawSubMode !== 'auto') {
       setSubtitleMode(rawSubMode);
     } else {
-      setSubtitleMode(audioTrack?.is_instrumental ? 'narrative_descriptions' : 'karaoke_lyrics');
+      setSubtitleMode('karaoke_lyrics');
     }
 
     setFontFamily(ls.font_family || 'Inter');

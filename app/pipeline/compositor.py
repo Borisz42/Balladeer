@@ -118,7 +118,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         if mode == "hidden":
             pass
-        elif mode == "narrative_descriptions" or (is_instrumental and mode == "auto" and slices):
+        elif mode == "narrative_descriptions":
             if slices:
                 for s in slices:
                     caption = (s.custom_caption or "").strip()
@@ -142,7 +142,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     e_str = self._sec_to_ass_time(t_end)
                     events.append(f"Dialogue: 0,{s_str},{e_str},NarrativeSub,,0,0,0,,{{\\fad(400,400)}}{line}")
 
-        elif mode == "chapter_event_cards" or (is_instrumental and mode == "auto"):
+        elif mode == "chapter_event_cards":
             lines = [l.strip() for l in audio_track.lyrics.split("\n") if l.strip()]
             card_interval = max(4.0, total_duration / max(len(lines), 1))
             for i, line in enumerate(lines):
@@ -152,6 +152,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 e_str = self._sec_to_ass_time(t_end)
                 events.append(f"Dialogue: 0,{s_str},{e_str},EventCard,,0,0,0,,{{\\fad(400,400)}}{line}")
         else:
+            # "karaoke_lyrics" or "auto" default: renders timed word-for-word synced lyrics or spoken narration subtitles
             aligned = audio_track.aligned_lyrics
             if not aligned:
                 events.append("Dialogue: 0,0:00:00.00,0:00:10.00,Karaoke,,0,0,0,,Balladeer Montage")
