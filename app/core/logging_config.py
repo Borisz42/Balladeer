@@ -87,6 +87,21 @@ def setup_logging(project_root: Optional[Path] = None) -> Path:
     httpx_logger = logging.getLogger("httpx")
     httpx_logger.addFilter(endpoint_filter)
 
+    # 4. Silence noisy third-party internal debug loggers (e.g. numba JIT compiler, llvmlite, matplotlib)
+    noisy_loggers = [
+        "numba",
+        "numba.core",
+        "llvmlite",
+        "matplotlib",
+        "PIL",
+        "urllib3",
+        "filelock",
+        "asyncio",
+        "torch.distributed"
+    ]
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
     root_logger.info("=" * 70)
     root_logger.info(f"   Balladeer Logging Session Started at {datetime.now().isoformat()}")
     root_logger.info(f"   Log File: {log_file.resolve()} (Level: DEBUG)")
