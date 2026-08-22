@@ -43,13 +43,14 @@ def setup_logging(project_root: Optional[Path] = None) -> Path:
     log_file = logs_dir / f"balladeer_{timestamp_str}.log"
     _log_file_path = log_file
 
-    log_format = "%(asctime)s [%(levelname)s] [%(name)s]: %(message)s"
-    formatter = logging.Formatter(log_format)
+    log_format = "%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s]: %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
+    formatter = logging.Formatter(log_format, datefmt=date_format)
     endpoint_filter = EndpointFilter()
 
-    # Root logger
+    # Root logger configured to DEBUG so full debug traces are available
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.DEBUG)
 
     # Clear existing handlers to avoid duplicates
     for handler in root_logger.handlers[:]:
@@ -63,14 +64,15 @@ def setup_logging(project_root: Optional[Path] = None) -> Path:
         pass
 
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_level = logging.DEBUG if os.getenv("BALLADEER_DEBUG", "").lower() in ("1", "true") else logging.INFO
+    console_handler.setLevel(console_level)
     console_handler.setFormatter(formatter)
     console_handler.addFilter(endpoint_filter)
     root_logger.addHandler(console_handler)
 
-    # 2. File Handler (timestamped utf-8)
+    # 2. File Handler (timestamped utf-8) captures full DEBUG logs
     file_handler = logging.FileHandler(str(log_file), mode="a", encoding="utf-8")
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     file_handler.addFilter(endpoint_filter)
     root_logger.addHandler(file_handler)
@@ -87,7 +89,8 @@ def setup_logging(project_root: Optional[Path] = None) -> Path:
 
     root_logger.info("=" * 70)
     root_logger.info(f"   Balladeer Logging Session Started at {datetime.now().isoformat()}")
-    root_logger.info(f"   Log File: {log_file.resolve()}")
+    root_logger.info(f"   Log File: {log_file.resolve()} (Level: DEBUG)")
+    root_logger.info(f"   Console Level: {logging.getLevelName(console_level)}")
     root_logger.info("=" * 70)
 
     return log_file

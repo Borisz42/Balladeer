@@ -825,6 +825,11 @@ class MusicGenerator:
             return local_vlm.generate_story_and_lyrics(acts, combined_text, is_instrumental)
 
         try:
+            logger.info("=" * 65)
+            logger.info(f"[MusicGen] Generating story & lyrics/subtitles (instrumental={is_instrumental}, {len(acts)} sections)...")
+            logger.debug(f"[MusicGen] Narrative context:\n{combined_text}")
+            logger.info("=" * 65)
+
             res, model_used = await model_router.execute_task(
                 task_type=TaskType.STORY_LYRICS,
                 prompt_payload=combined_text,
@@ -835,16 +840,22 @@ class MusicGenerator:
             logger.info(f"[MusicGen] Story & lyrics generated using: {model_used}")
             if isinstance(res, dict) and "lyrics" in res:
                 p = res.get("prompt") or flow_prompt or self._generate_heuristic_flow_prompt(acts)
+                logger.debug(f"[MusicGen] Raw LLM lyrics before timeline enforcement:\n{res['lyrics']}")
                 clean_lyrics = self.enforce_acts_timeline_on_lyrics(acts, res["lyrics"], is_instrumental)
+                logger.info(f"[MusicGen] ✓ Final aligned lyrics/subtitles:\n{clean_lyrics}")
                 return clean_lyrics, p
             elif isinstance(res, tuple):
                 p = res[1] or flow_prompt or self._generate_heuristic_flow_prompt(acts)
+                logger.debug(f"[MusicGen] Raw LLM lyrics before timeline enforcement:\n{res[0]}")
                 clean_lyrics = self.enforce_acts_timeline_on_lyrics(acts, res[0], is_instrumental)
+                logger.info(f"[MusicGen] ✓ Final aligned lyrics/subtitles:\n{clean_lyrics}")
                 return clean_lyrics, p
         except Exception as e:
             logger.warning(f"Cloud story lyrics waterfall fallback: {e}")
 
-        return self._generate_heuristic_lyrics(acts, is_instrumental)
+        fallback_lyrics, fallback_prompt = self._generate_heuristic_lyrics(acts, is_instrumental)
+        logger.info(f"[MusicGen] Using heuristic fallback lyrics:\n{fallback_lyrics}")
+        return fallback_lyrics, fallback_prompt
 
     def synthesize_music_track(
         self,

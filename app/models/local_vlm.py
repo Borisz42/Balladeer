@@ -573,6 +573,13 @@ class LocalVLMRunner:
             return ""
 
         try:
+            logger.info("=" * 65)
+            logger.info(f"[Local-AI] [LLM-Call] Dispatching text generation (max_tokens={max_tokens}):")
+            if system_prompt:
+                logger.info(f"[Local-AI] [System-Prompt]:\n{system_prompt}")
+            logger.info(f"[Local-AI] [User-Prompt]:\n{prompt}")
+            logger.info("=" * 65)
+
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
@@ -598,7 +605,11 @@ class LocalVLMRunner:
                     eos_token_id=eos_id
                 )
             new_ids = generated[0][prompt_len:]
-            return processor.decode(new_ids, skip_special_tokens=True).strip()
+            result = processor.decode(new_ids, skip_special_tokens=True).strip()
+
+            logger.info(f"[Local-AI] [LLM-Response] ({len(new_ids)} new tokens generated):\n{result}")
+            logger.debug(f"[Local-AI] [LLM-Debug] Prompt token length: {prompt_len}, Total output tokens: {generated.shape[1]}")
+            return result
         except Exception as e:
             logger.warning(f"[Local-AI] Text generation notice: {e}")
             return ""

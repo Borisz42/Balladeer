@@ -363,7 +363,10 @@ class GoogleAIStudioClient:
         last_error = None
         for slug in candidate_slugs:
             url = f"{self.base_url}/{slug}:generateContent?key={api_key}"
+            logger.info("=" * 65)
             logger.info(f"[Google-AI] Calling '{slug}' for story structure & Google Flow Music prompt generation...")
+            logger.info(f"[Google-AI] [Prompt-Instruction]:\n{prompt_instruction}")
+            logger.info("=" * 65)
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(url, json=payload)
@@ -378,6 +381,9 @@ class GoogleAIStudioClient:
                         continue
 
                     raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+                    logger.info(f"[Google-AI] [LLM-Response] Raw response from '{slug}':\n{raw_text}")
+                    logger.debug(f"[Google-AI] [LLM-Debug] Full candidate metadata: {candidates[0].get('finishReason', 'UNKNOWN')}")
+
                     cleaned_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
                     cleaned_text = re.sub(r"^```\s*", "", cleaned_text)
                     cleaned_text = re.sub(r"\s*```$", "", cleaned_text).strip()
@@ -491,7 +497,10 @@ class GoogleAIStudioClient:
         last_error = None
         for slug in candidate_slugs:
             url = f"{self.base_url}/{slug}:generateContent?key={api_key}"
+            logger.info("=" * 65)
             logger.info(f"[Google-AI] Calling '{slug}' to draft comprehensive travel log from {len(media_items)} media items...")
+            logger.info(f"[Google-AI] [Prompt-Instruction]:\n{prompt_instruction}")
+            logger.info("=" * 65)
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     resp = await client.post(url, json=payload)
@@ -507,6 +516,9 @@ class GoogleAIStudioClient:
                         continue
 
                     raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+                    logger.info(f"[Google-AI] [LLM-Response] Raw response from '{slug}':\n{raw_text}")
+                    logger.debug(f"[Google-AI] [LLM-Debug] Finish reason: {candidates[0].get('finishReason', 'UNKNOWN')}")
+
                     cleaned_text = re.sub(r"^```json\s*", "", raw_text, flags=re.IGNORECASE)
                     cleaned_text = re.sub(r"^```\s*", "", cleaned_text)
                     cleaned_text = re.sub(r"\s*```$", "", cleaned_text).strip()
