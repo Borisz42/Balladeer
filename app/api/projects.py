@@ -658,13 +658,14 @@ def analyze_music_timeline(project_id: str, req: Optional[AnalyzeMusicTimelineRe
         # Persist updated threshold config into project
         db.update_project(project_id, config_override=custom_cfg)
 
+    logger.info(f"[MusicStudio] [Phase 1: Timeline Analysis] Project: {project_id}, Pacing: {req.pacing_preset if req else 'default'}, Default Threshold: {req.default_threshold if req else 75}%")
     analysis = music_gen.calculate_media_timeline_estimate(
         project_id=project_id,
         diary_days=diary_days,
         assets=assets,
         custom_config=custom_cfg
     )
-
+    logger.debug(f"[MusicStudio] [Phase 1: Results] Total Dur: {analysis.get('total_duration_sec')}s, Suggested BPM: {analysis.get('suggested_bpm')}, Acts Count: {len(analysis.get('acts', []))}")
     return analysis
 
 @router.post("/{project_id}/music/generate-prompt")
@@ -695,6 +696,7 @@ async def generate_music_prompt_endpoint(project_id: str, req: Optional[Generate
         total_dur = req.total_duration_sec or 30.0
 
     style_vibe = req.style_vibe if req else None
+    logger.info(f"[MusicStudio] [Phase 2: Prompt Generation] Project: {project_id}, Vibe: {style_vibe or 'default'}, BPM: {suggested_bpm}, Dur: {total_dur}s, Acts: {len(acts)}")
 
     prompt_data = await music_gen.generate_music_prompt_async(
         acts=acts,
@@ -703,7 +705,7 @@ async def generate_music_prompt_endpoint(project_id: str, req: Optional[Generate
         total_duration_sec=total_dur,
         style_vibe=style_vibe
     )
-
+    logger.debug(f"[MusicStudio] [Phase 2: Generated Prompt]: {prompt_data.get('flow_prompt')}")
     return prompt_data
 
 @router.post("/{project_id}/music/generate-lyrics")
@@ -730,6 +732,7 @@ async def generate_music_lyrics_endpoint(project_id: str, req: Optional[Generate
 
     flow_p = req.flow_prompt if req and req.flow_prompt else ""
     is_inst = req.is_instrumental if req and req.is_instrumental is not None else False
+    logger.info(f"[MusicStudio] [Phase 3: Lyrics / Subtitles Generation] Project: {project_id}, Instrumental: {is_inst}, Acts: {len(acts)}")
 
     lyrics, out_prompt = await music_gen.generate_rhyming_lyrics_async(
         acts=acts,
@@ -737,6 +740,7 @@ async def generate_music_lyrics_endpoint(project_id: str, req: Optional[Generate
         flow_prompt=flow_p,
         is_instrumental=is_inst
     )
+    logger.debug(f"[MusicStudio] [Phase 3: Output Lyrics / Subtitles]:\n{lyrics}")
 
     return {
         "lyrics": lyrics,
@@ -745,11 +749,12 @@ async def generate_music_lyrics_endpoint(project_id: str, req: Optional[Generate
     }
 
 @router.post("/{project_id}/music/synthesize-and-align", response_model=AudioTrackModel)
+@router.post("/{project_id}/music/analyze-and-align", response_model=AudioTrackModel)
 @router.post("/{project_id}/generate-music", response_model=AudioTrackModel)
 async def generate_music_and_align(project_id: str, req: Optional[SynthesizeMusicAudioRequest] = None):
     """
-    Phase 4 / Full Music Generation: Synthesizes preview audio track, separates vocal/accompaniment stems
-    with Demucs, extracts Librosa beat grid, and aligns lyrics with MMS-FA CTC forced alignment.
+    Phase 4 / Analyze & Align: Previews audio track, separates vocal/accompaniment stems
+    with Demucs, extracts Librosa beat grid, and aligns lyrics/subtitles with MMS-FA CTC forced alignment.
     """
     proj = db.get_project(project_id)
     if not proj:
@@ -775,6 +780,7 @@ async def generate_music_and_align(project_id: str, req: Optional[SynthesizeMusi
 
         prompt = req.prompt if req and req.prompt else None
         lyrics = req.lyrics if req and req.lyrics else None
+        logger.info(f"[MusicStudio] [Phase 4: Analyze & Align] Project: {project_id}, BPM: {bpm}, Dur: {duration}s, Instrumental: {is_inst}, Lyrics Len: {len(lyrics or '')} chars")
 
         if not prompt or not lyrics:
             await progress_tracker.emit(project_id, "music_gen", 15.0, "Structuring narrative acts and optimizing Google Flow Music prompt...")
@@ -787,7 +793,7 @@ async def generate_music_and_align(project_id: str, req: Optional[SynthesizeMusi
             lyrics = lyrics or gen_lyrics
             prompt = prompt or gen_prompt
         else:
-            lyrics = music_gen.enforce_acts_timeline_on_lyrics(acts, lyrics, is_inst)
+            lyrics = music_gen.enforce_acts_timeline_on_lyrics(acts, lyrics, is_instrumental=is_inst)
 
         loop = asyncio.get_running_loop()
         def on_synth_progress(msg: str, pct: float):

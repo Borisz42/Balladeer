@@ -107,31 +107,32 @@ export default function MusicStudio({
     }
   }, [project?.id]);
 
-  // Phase 1: Analyze Timeline & Pacing
-  const handleAnalyzeTimeline = async (overridePacing, overrideThresholds) => {
+  // Phase 1: Analyze Media & Calculate Timeline
+  const handleAnalyzeTimeline = async () => {
     if (!project?.id) return;
+    console.log('[MusicStudio] [Button-Click] 1. Analyze Timeline clicked', { pacingPreset, defaultThreshold, dailyThresholds });
     setIsAnalyzing(true);
-    setStatusNote('Analyzing media scores & calculating timeline pacing...');
+    setStatusNote('Analyzing media assets & calculating musical timeline...');
     try {
-      const activePacing = overridePacing || pacingPreset;
-      const activeThresholds = overrideThresholds || dailyThresholds;
       const res = await analyzeMusicTimeline(project.id, {
-        pacingPreset: activePacing,
+        pacingPreset: pacingPreset,
         defaultThreshold: defaultThreshold,
-        dailyThresholds: activeThresholds
+        dailyThresholds: dailyThresholds
       });
+      console.log('[MusicStudio] [Phase 1: Response]', res);
       if (onTimelineEstimateUpdated) {
         onTimelineEstimateUpdated(res);
       }
-      if (!manualDurationOverride && res.total_duration_sec) {
+      if (res.total_duration_sec) {
         setDuration(res.total_duration_sec);
       }
-      if (!audioTrack && res.suggested_bpm) {
+      if (res.suggested_bpm) {
         setBpm(res.suggested_bpm);
       }
       setStatusNote(`Timeline calculated: ${res.total_duration_sec}s (${res.acts?.length || 0} sections).`);
       setTimeout(() => setStatusNote(null), 3500);
     } catch (err) {
+      console.error('[MusicStudio] [Phase 1: Error]', err);
       alert('Timeline analysis failed: ' + err.message);
     } finally {
       setIsAnalyzing(false);
@@ -141,6 +142,7 @@ export default function MusicStudio({
   // Phase 2: Generate Flow Music Prompt
   const handleGeneratePrompt = async () => {
     if (!project?.id) return;
+    console.log('[MusicStudio] [Button-Click] 2. Generate Prompt clicked', { styleVibe, bpm, duration });
     setIsGeneratingPrompt(true);
     setStatusNote('Synthesizing Google Flow Music prompt with section cues...');
     try {
@@ -151,6 +153,7 @@ export default function MusicStudio({
         totalDurationSec: parseFloat(duration) || 30.0,
         acts: acts
       });
+      console.log('[MusicStudio] [Phase 2: Response]', res);
       if (res.flow_prompt) {
         setPrompt(res.flow_prompt);
       }
@@ -160,17 +163,19 @@ export default function MusicStudio({
       setStatusNote('Flow Music prompt generated successfully!');
       setTimeout(() => setStatusNote(null), 3000);
     } catch (err) {
+      console.error('[MusicStudio] [Phase 2: Error]', err);
       alert('Prompt generation failed: ' + err.message);
     } finally {
       setIsGeneratingPrompt(false);
     }
   };
 
-  // Phase 3: Generate Structured Rhyming Lyrics
+  // Phase 3: Generate Structured Rhyming Lyrics / Narration
   const handleGenerateLyrics = async () => {
     if (!project?.id) return;
+    console.log('[MusicStudio] [Button-Click] 3. Generate Lyrics / Subtitles clicked', { isInstrumental, promptLen: prompt?.length });
     setIsGeneratingLyrics(true);
-    setStatusNote('Generating proportional rhyming lyrics with timing tags...');
+    setStatusNote(isInstrumental ? 'Generating timed story narration subtitles...' : 'Generating proportional rhyming lyrics with timing tags...');
     try {
       const acts = timelineEstimate?.acts || undefined;
       const res = await generateMusicLyrics(project.id, {
@@ -178,15 +183,17 @@ export default function MusicStudio({
         isInstrumental: isInstrumental,
         acts: acts
       });
+      console.log('[MusicStudio] [Phase 3: Response]', res);
       if (res.lyrics) {
         setLyrics(res.lyrics);
       }
       if (res.prompt && !prompt) {
         setPrompt(res.prompt);
       }
-      setStatusNote('Lyrics & event cards generated successfully!');
+      setStatusNote(isInstrumental ? 'Story subtitles generated successfully!' : 'Rhyming lyrics generated successfully!');
       setTimeout(() => setStatusNote(null), 3000);
     } catch (err) {
+      console.error('[MusicStudio] [Phase 3: Error]', err);
       alert('Lyrics generation failed: ' + err.message);
     } finally {
       setIsGeneratingLyrics(false);
@@ -196,7 +203,9 @@ export default function MusicStudio({
   // Phase 4: Analyze Audio & Align Stems / Subtitles
   const handleSynthesizeAudio = async () => {
     if (!onGenerateMusic) return;
+    console.log('[MusicStudio] [Button-Click] 4. Analyze & Align clicked', { bpm, duration, isInstrumental, lyricsLen: lyrics?.length });
     setIsSynthesizing(true);
+    setStatusNote('Analyzing audio, demixing stems and aligning lyrics/subtitles...');
     try {
       await onGenerateMusic({
         bpm: parseFloat(bpm),
@@ -205,8 +214,12 @@ export default function MusicStudio({
         lyrics: lyrics.trim() || undefined,
         is_instrumental: isInstrumental
       });
+      console.log('[MusicStudio] [Phase 4: Complete]');
       setStatusNote('Audio analyzed, stems separated and subtitles/lyrics aligned!');
       setTimeout(() => setStatusNote(null), 3500);
+    } catch (err) {
+      console.error('[MusicStudio] [Phase 4: Error]', err);
+      alert('Audio alignment failed: ' + err.message);
     } finally {
       setIsSynthesizing(false);
     }

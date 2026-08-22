@@ -530,15 +530,15 @@ class MusicGenerator:
             "instruments": ["Acoustic Guitar", "Warm Vocals", "Ambient Percussion", "Cello"]
         }
 
-    def _clean_and_filter_lyric_line(self, line: str, known_titles: List[str]) -> Optional[str]:
-        """Cleans markdown, tags, echoes, and returns text only if it is a genuine sung lyric line."""
+    def _clean_and_filter_lyric_line(self, line: str, known_titles: List[str], is_instrumental: bool = False) -> Optional[str]:
+        """Cleans markdown, tags, echoes, and returns text only if it is a genuine sung lyric line or spoken subtitle."""
         # 1. Strip all markdown formatting (*, #, _, `, ~, >, -)
         cleaned = re.sub(r"[*`#_~>]+", " ", line)
         cleaned = re.sub(r"^[0-9\-\.\*•]+\s*", "", cleaned).strip()
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
         # 2. Check if line starts with header indicators or brackets
-        if not cleaned or cleaned.startswith("[") or cleaned.endswith("]"):
+        if not cleaned or (cleaned.startswith("[") and cleaned.endswith("]")):
             return None
 
         # 3. Check if line is a header echo (e.g. "Verse 1:", "Chorus -", "Act 1")
@@ -553,12 +553,14 @@ class MusicGenerator:
             return None
         if " & " in cleaned and len(cleaned.split()) <= 6:
             return None
-        if cleaned.lower().startswith("instrumental"):
+        if cleaned.lower().startswith("instrumental") and not is_instrumental:
             return None
 
-        # 5. Reject lines that are too long to be a single song lyric line or contain raw camera/OCR text
+        # 5. Reject lines that are too short, or too long for singing verse lines
         words = cleaned.split()
-        if len(words) < 3 or len(words) > 16:
+        if len(words) < 2:
+            return None
+        if not is_instrumental and len(words) > 16:
             return None
 
         technical_cues = [
@@ -809,7 +811,7 @@ class MusicGenerator:
             for i in range(1, len(splits), 2):
                 hdr = splits[i].strip().lower()
                 body = splits[i + 1].strip() if i + 1 < len(splits) else ""
-                lines = [self._clean_and_filter_lyric_line(l, known_titles) for l in body.split("\n") if l.strip()]
+                lines = [self._clean_and_filter_lyric_line(l, known_titles, is_instrumental=is_instrumental) for l in body.split("\n") if l.strip()]
                 clean_lines = [l for l in lines if l]
                 if clean_lines:
                     if "intro" in hdr:
@@ -831,7 +833,7 @@ class MusicGenerator:
             raw_blocks = [b.strip() for b in clean_raw.split("\n\n") if b.strip()]
             for block in raw_blocks:
                 lines = [l.strip() for l in block.split("\n") if l.strip()]
-                clean_lines = [self._clean_and_filter_lyric_line(l, known_titles) for l in lines]
+                clean_lines = [self._clean_and_filter_lyric_line(l, known_titles, is_instrumental=is_instrumental) for l in lines]
                 clean_lines = [l for l in clean_lines if l]
                 if clean_lines:
                     unnamed_blocks.append(clean_lines)
