@@ -604,7 +604,7 @@ class MusicGenerator:
         ]
         
         selected = rhyme_sets[verse_idx % len(rhyme_sets)]
-        line_count = 2 if dur <= 10.0 else (3 if dur <= 16.0 else 4)
+        line_count = 4 if dur >= 14.0 else 2
         return selected[:line_count]
 
     def _trim_narration_to_complete_sentences(self, text: str, dur: float, act_type: str = "") -> str:
@@ -797,17 +797,22 @@ class MusicGenerator:
                     lines_to_use = extracted_verse_lines[vocal_block_idx]
                     vocal_block_idx += 1
 
-                # Filter candidate lines
-                max_lines = 2 if dur <= 10.0 else (3 if dur <= 16.0 else 4)
+                target_lines = 4 if dur >= 14.0 else 2
                 formatted = []
-                for l in lines_to_use[:max_lines]:
+                for l in lines_to_use:
                     c_line = self._clean_and_filter_lyric_line(l, known_titles) or l
                     if c_line and not c_line.startswith("["):
                         formatted.append(c_line)
+                    if len(formatted) == target_lines:
+                        break
 
-                # If fewer than 2 valid rhyming lines exist, fallback to curated rhyming verse
-                if len(formatted) < 2:
-                    formatted = self._create_fallback_rhyming_verse(act, vocal_block_idx, dur)
+                # If fewer than target_lines exist, complete or fallback to curated rhyming verses
+                if len(formatted) < target_lines:
+                    fallback_lines = self._create_fallback_rhyming_verse(act, vocal_block_idx, dur)
+                    if len(formatted) == 2 and target_lines == 4:
+                        formatted.extend(fallback_lines[2:4] if len(fallback_lines) >= 4 else fallback_lines[:2])
+                    else:
+                        formatted = fallback_lines[:target_lines]
 
                 output_blocks.append(tag + "\n" + "\n".join(formatted))
 

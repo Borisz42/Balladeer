@@ -322,10 +322,10 @@ def test_enforce_acts_timeline_rejects_raw_caption_and_enforces_rhyme():
     assert "white card" not in clean_lyrics.lower()
     assert "metal detector" not in clean_lyrics.lower()
 
-    # Must contain valid rhyming lines for Verse 1
+    # Must contain valid rhyming lines for Verse 1 (17s requires 4 lines)
     verse_block = clean_lyrics.split("[0:04-0:21] [Verse 1: Day 1] (17s)\n")[1].split("\n\n")[0]
     lines = [l.strip() for l in verse_block.split("\n") if l.strip()]
-    assert len(lines) >= 2
+    assert len(lines) == 4
     for l in lines:
         assert len(l.split()) >= 4
         assert len(l.split()) <= 16

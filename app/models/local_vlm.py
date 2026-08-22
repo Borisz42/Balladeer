@@ -120,12 +120,21 @@ class LocalVLMRunner:
             memory_manager.set_loading(display_name, key="vlm")
             logger.info(f"[Local-AI] Initializing Local VLM engine for '{target_model}' (Source: {model_source})...")
 
+            is_local_path = Path(model_source).exists()
             try:
-                self._processor = AutoProcessor.from_pretrained(model_source, trust_remote_code=True)
+                self._processor = AutoProcessor.from_pretrained(
+                    model_source,
+                    trust_remote_code=True,
+                    local_files_only=is_local_path
+                )
             except Exception as proc_err:
                 logger.debug(f"[Local-AI] AutoProcessor from {model_source} notice: {proc_err}. Trying canonical {canonical_repo}...")
                 model_source = canonical_repo
-                self._processor = AutoProcessor.from_pretrained(canonical_repo, trust_remote_code=True)
+                self._processor = AutoProcessor.from_pretrained(
+                    canonical_repo,
+                    trust_remote_code=True,
+                    local_files_only=Path(canonical_repo).exists()
+                )
 
             quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -133,26 +142,30 @@ class LocalVLMRunner:
                 bnb_4bit_quant_type="nf4"
             )
 
+            is_local_path = Path(model_source).exists()
             if is_cuda:
                 self._model = AutoModelForImageTextToText.from_pretrained(
                     model_source,
                     device_map="auto",
                     torch_dtype="auto",
                     quantization_config=quantization_config,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    local_files_only=is_local_path
                 )
                 self._loaded_model_name = target_model
                 memory_manager.set_loaded("vlm", display_name)
-                logger.info(f"[GPU] ✓ Successfully loaded active model: {target_model.upper()} ({model_source}) on CUDA GPU")
+                logger.info(f"[GPU] ✓ Successfully loaded active model: {target_model.upper()} ({model_source}) on CUDA GPU (local_files_only={is_local_path})")
             else:
                 self._model = AutoModelForImageTextToText.from_pretrained(
                     model_source,
                     torch_dtype=torch.float32,
-                    device_map="cpu"
+                    device_map="cpu",
+                    trust_remote_code=True,
+                    local_files_only=is_local_path
                 )
                 self._loaded_model_name = target_model
                 memory_manager.set_loaded("vlm", f"{display_name} [CPU]")
-                logger.warning(f"[CPU] ⚠️ Loaded active model: {target_model.upper()} on CPU (CUDA unavailable)")
+                logger.warning(f"[CPU] ⚠️ Loaded active model: {target_model.upper()} on CPU (local_files_only={is_local_path})")
 
         except Exception as e:
             logger.warning(f"[Local-AI] Failed to load {target_model} via Transformers: {e}")
@@ -729,10 +742,10 @@ class LocalVLMRunner:
             "based on the travel story and section timeline.\n\n"
             "CRITICAL RHYMING & LYRIC RULES:\n"
             "1. Every Verse MUST have strict rhyming pairs at the end of each line (AABB rhyme scheme).\n"
-            "   - Line 1 and Line 2 MUST rhyme with each other (e.g., light / sight, sun / begun, eyes / skies).\n"
-            "   - Line 3 and Line 4 MUST rhyme with each other (e.g., street / meet, way / day, hold / gold).\n"
+            "   - For sections >= 14s (e.g. 16s-24s), you MUST write EXACTLY 4 full rhyming lines (AABB: Line 1 rhymes with Line 2, Line 3 rhymes with Line 4).\n"
+            "   - For sections < 14s (e.g. 6s-12s), you MUST write EXACTLY 2 full rhyming lines (AA: Line 1 rhymes with Line 2).\n"
             "2. NEVER copy literal photo captions, technical labels, or OCR text (e.g. NEVER mention 'white card', 'qr code', 'metal detector', 'holds a', 'camera'). Transform the journey into lyrical poetry about travel, destinations, walking, and atmosphere.\n"
-            "3. For each [Verse] section, write 2 to 4 full poetic rhyming lines (at least 7-10 words per line). Do NOT write unrhymed prose.\n"
+            "3. Each line must be at least 7-10 words. Do NOT write unrhymed prose.\n"
             "4. For [Intro] and [Outro] instrumental sections, write [Instrumental - acoustic guitar description].\n"
             "5. Do NOT use markdown bolding (**) or hashtags (#). Use plain text lines.\n\n"
             "EXAMPLE OUTPUT FORMAT:\n"
@@ -748,7 +761,8 @@ class LocalVLMRunner:
         )
         prompt = (
             f"INSTRUCTIONS:\n"
-            f"Write poetic rhyming song lyrics (AABB rhyme scheme where Line 1 rhymes with Line 2, and Line 3 rhymes with Line 4). "
+            f"Write poetic rhyming song lyrics with strict AABB rhyme scheme. "
+            f"For sections >= 14s, write EXACTLY 4 rhyming lines (AABB: 2 rhyming pairs). "
             f"Every line must end with a rhyming word! Do NOT copy raw camera captions or object descriptions (like 'qr code' or 'white card').\n\n"
             f"Travel Story & Captions:\n{narrative_text.strip()}\n\n"
             f"Required Section Timeline:\n{timeline_schedule}\n\n"
