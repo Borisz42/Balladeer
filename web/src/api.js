@@ -257,30 +257,31 @@ export async function generateMusicLyrics(projectId, { flowPrompt, isInstrumenta
   return res.json();
 }
 
-export async function synthesizeMusicAudio(projectId, { prompt, lyrics, bpm, durationSec, is_instrumental } = {}) {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/music/synthesize-and-align`, {
+export async function synthesizeMusicAudio(projectId, { prompt, lyrics, bpm, duration_sec, durationSec, is_instrumental } = {}) {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/music/analyze-and-align`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt: prompt || null,
       lyrics: lyrics || null,
       bpm: bpm || 118.0,
-      duration_sec: durationSec || 30.0,
+      duration_sec: durationSec || duration_sec || 30.0,
       is_instrumental: is_instrumental || false
     })
   });
-  if (!res.ok) throw new Error('Failed to synthesize music audio');
+  if (!res.ok) throw new Error('Failed to analyze and align music audio');
   return res.json();
 }
 
-export async function generateMusic(projectId, { prompt, bpm, durationSec, is_instrumental } = {}) {
+export async function generateMusic(projectId, { prompt, lyrics, bpm, duration_sec, durationSec, is_instrumental } = {}) {
   const res = await fetch(`${API_BASE}/projects/${projectId}/generate-music`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt: prompt || null,
+      lyrics: lyrics || null,
       bpm: bpm || 120.0,
-      duration_sec: durationSec || 30.0,
+      duration_sec: durationSec || duration_sec || 30.0,
       is_instrumental: is_instrumental || false
     })
   });

@@ -103,14 +103,14 @@ export default function MusicStudio({
   // Initial timeline analysis on project load if not present
   useEffect(() => {
     if (project?.id && !timelineEstimate && !isAnalyzing) {
-      handleAnalyzeTimeline();
+      handleAnalyzeTimeline(false);
     }
   }, [project?.id]);
 
   // Phase 1: Analyze Media & Calculate Timeline
-  const handleAnalyzeTimeline = async () => {
+  const handleAnalyzeTimeline = async (isManual = true) => {
     if (!project?.id) return;
-    console.log('[MusicStudio] [Button-Click] 1. Analyze Timeline clicked', { pacingPreset, defaultThreshold, dailyThresholds });
+    console.log('[MusicStudio] [Button-Click] 1. Analyze Timeline', { isManual, pacingPreset, defaultThreshold, dailyThresholds });
     setIsAnalyzing(true);
     setStatusNote('Analyzing media assets & calculating musical timeline...');
     try {
@@ -133,7 +133,9 @@ export default function MusicStudio({
       setTimeout(() => setStatusNote(null), 3500);
     } catch (err) {
       console.error('[MusicStudio] [Phase 1: Error]', err);
-      alert('Timeline analysis failed: ' + err.message);
+      if (isManual) {
+        alert('Timeline analysis failed: ' + err.message);
+      }
     } finally {
       setIsAnalyzing(false);
     }

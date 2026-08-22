@@ -658,7 +658,7 @@ def analyze_music_timeline(project_id: str, req: Optional[AnalyzeMusicTimelineRe
         # Persist updated threshold config into project
         db.update_project(project_id, config_override=custom_cfg)
 
-    logger.info(f"[MusicStudio] [Phase 1: Timeline Analysis] Project: {project_id}, Pacing: {req.pacing_preset if req else 'default'}, Default Threshold: {req.default_threshold if req else 75}%")
+    logger.info(f"[MusicStudio] [Phase 1: Timeline Analysis] Project: {project_id}, Pacing: {req.pacing_preset if req else 'balanced'}, Default Threshold: {req.default_inclusion_threshold if req else 70.0}%")
     analysis = music_gen.calculate_media_timeline_estimate(
         project_id=project_id,
         diary_days=diary_days,
@@ -1014,11 +1014,18 @@ async def realign_project_lyrics(project_id: str, req: Optional[RealignLyricsReq
         raise HTTPException(status_code=400, detail="Audio stem file not found on disk")
 
     try:
-        aligned_words = aligner.align_lyrics_mms_fa(
-            vocal_path=Path(vocal_target),
-            lyrics_text=lyrics_text,
-            beat_grid=track.beat_grid
-        )
+        if track.is_instrumental:
+            aligned_words = aligner.align_instrumental_narration_subtitles(
+                subtitles_text=lyrics_text,
+                beat_grid=track.beat_grid,
+                bpm=track.bpm
+            )
+        else:
+            aligned_words = aligner.align_lyrics_mms_fa(
+                vocal_path=Path(vocal_target),
+                lyrics_text=lyrics_text,
+                beat_grid=track.beat_grid
+            )
 
         updated_track = db.update_audio_track_lyrics(
             project_id=project_id,
