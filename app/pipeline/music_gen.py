@@ -702,19 +702,23 @@ class MusicGenerator:
         narrations = [
             (
                 f"Walking into {title}, the morning sun illuminates the vibrant scenery and lively streets. "
-                "Every corner reveals historic architecture, quiet cafes, and the rich atmosphere of the journey as we explore."
+                "Every corner reveals historic architecture, quiet cafes, and the rich atmosphere of the journey as we explore. "
+                "Footsteps on the cobblestones echo with the spirit of discovery as each new scene unfolds before our eyes."
             ),
             (
                 "Exploring deeper along the scenic promenade, we take in panoramic views of the water and open skies. "
-                "Sunlight reflects off the water as we pause to capture the peaceful atmosphere and beautiful scenes all around us."
+                "Sunlight reflects off the water as we pause to capture the peaceful atmosphere and beautiful scenes all around us. "
+                "The quiet rhythm of the city invites us to slow down and savor every remarkable perspective."
             ),
             (
                 "The afternoon journey continues through winding cobblestone alleys and picturesque pathways. "
-                "Laughter and music fill the warm breeze, creating unforgettable moments with every new step along the way."
+                "Laughter and music fill the warm breeze, creating unforgettable moments with every new step along the way. "
+                "Historic facades and welcoming storefronts tell tales of generations past, bringing the heritage of the town to life."
             ),
             (
                 "Golden hour descends across the skyline, bathing the cityscape in warm amber tones. "
-                "We take one last stroll past the landmarks, celebrating the beauty and shared memories of another remarkable day."
+                "We take one last stroll past the landmarks, celebrating the beauty and shared memories of another remarkable day. "
+                "As twilight approaches, the quiet streets settle into a serene stillness that stays in our hearts forever."
             )
         ]
         chosen = narrations[verse_idx % len(narrations)]
@@ -774,13 +778,21 @@ class MusicGenerator:
             if is_instrumental:
                 # Timed spoken narrative subtitles for instrumental mode
                 narration_text = ""
+                min_words_for_dur = 5 if dur <= 5.0 else max(16, int(dur * 1.6))
+
                 if vocal_block_idx < len(extracted_verse_lines):
                     candidate_lines = extracted_verse_lines[vocal_block_idx]
                     vocal_block_idx += 1
                     joined = " ".join(candidate_lines)
                     joined = re.sub(r"\[.*?\]", "", joined).strip()
-                    if len(joined.split()) >= 3:
+
+                    if len(joined.split()) >= min_words_for_dur:
                         narration_text = self._trim_narration_to_complete_sentences(joined, dur, act_type)
+                    elif len(joined.split()) >= 4 and dur > 5.0:
+                        # Combine with rich contextual narration to reach full spoken word count for duration
+                        fb = self._create_fallback_narration_subtitles(act, act_idx, dur)
+                        combined_text = f"{joined} {fb}"
+                        narration_text = self._trim_narration_to_complete_sentences(combined_text, dur, act_type)
 
                 if not narration_text:
                     narration_text = self._create_fallback_narration_subtitles(act, act_idx, dur)

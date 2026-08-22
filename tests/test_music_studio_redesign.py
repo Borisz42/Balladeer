@@ -330,5 +330,31 @@ def test_enforce_acts_timeline_rejects_raw_caption_and_enforces_rhyme():
         assert len(l.split()) >= 4
         assert len(l.split()) <= 16
 
+def test_enforce_acts_timeline_instrumental_expands_short_sentences():
+    acts = [
+        {"act_type": "Intro", "title": "Intro Swell", "start_sec": 0.0, "end_sec": 4.0, "duration_sec": 4.0},
+        {"act_type": "Verse 1", "title": "Day 1", "start_sec": 4.0, "end_sec": 22.0, "duration_sec": 18.0},
+        {"act_type": "Outro", "title": "Outro Fade", "start_sec": 22.0, "end_sec": 26.0, "duration_sec": 4.0}
+    ]
+
+    # Simulating LLM returning only 1 brief 10-word sentence for an 18s section
+    raw_brief = (
+        "[0:00-0:04] [Intro: Intro Swell] (4s)\n"
+        "Our journey begins as morning light breaks across the horizon.\n\n"
+        "[0:04-0:22] [Verse 1: Day 1] (18s)\n"
+        "As the sun sets, we hold onto memories from an unforgettable day.\n\n"
+        "[0:22-0:26] [Outro: Outro Fade] (4s)\n"
+        "As the day comes to a close, we hold onto memories."
+    )
+
+    clean_subs = music_gen.enforce_acts_timeline_on_lyrics(acts, raw_brief, is_instrumental=True)
+    verse_block = clean_subs.split("[0:04-0:22] [Verse 1: Day 1] (18s)\n")[1].split("\n\n")[0]
+    words = verse_block.split()
+    # 18s spoken narration must be between 25 and 55 words (2-3 complete sentences)
+    assert len(words) >= 25
+    assert len(words) <= 55
+    assert verse_block.endswith(".")
+
+
 
 
