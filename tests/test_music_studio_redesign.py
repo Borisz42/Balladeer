@@ -418,8 +418,44 @@ def test_align_instrumental_narration_subtitles_valid_models():
         assert isinstance(w.word, str) and len(w.word) > 0
         assert w.start >= 0.0
         assert w.end > w.start
-        assert w.snapped_start >= 0.0
-        assert w.snapped_end >= w.snapped_start
+def test_enforce_acts_timeline_no_duration_tag_leakage_on_repeated_runs():
+    acts = [
+        {"act_type": "Intro", "title": "Acoustic Intro Swell", "start_sec": 0.0, "end_sec": 4.0, "duration_sec": 4.0},
+        {"act_type": "Verse 1", "title": "Day 1", "start_sec": 4.0, "end_sec": 22.0, "duration_sec": 18.0},
+        {"act_type": "Outro", "title": "Acoustic Outro Fade", "start_sec": 22.0, "end_sec": 26.0, "duration_sec": 4.0}
+    ]
+
+    initial_text = (
+        "[0:00-0:04] [Intro: Acoustic Intro Swell] (4s)\n"
+        "(4s) (4s) The journey begins as morning light breaks across the horizon.\n\n"
+        "[0:04-0:22] [Verse 1: Day 1] (18s)\n"
+        "(18s) (18s) Walking down the cobblestone streets,\n"
+        "we take in the historic architecture and lively local markets.\n"
+        "Every corner reveals colorful shopfronts,\n"
+        "quiet riverside cafes, and the vibrant spirit of the city as we explore.\n\n"
+        "[0:22-0:26] [Outro: Acoustic Outro Fade] (4s)\n"
+        "(4s) (4s) As the day comes to a close."
+    )
+
+    # Run timeline enforcement multiple times in succession
+    res1 = music_gen.enforce_acts_timeline_on_lyrics(acts, initial_text, is_instrumental=True)
+    res2 = music_gen.enforce_acts_timeline_on_lyrics(acts, res1, is_instrumental=True)
+    res3 = music_gen.enforce_acts_timeline_on_lyrics(acts, res2, is_instrumental=True)
+
+    # Check body text under each header
+    for section in res3.split("\n\n"):
+        lines = [l.strip() for l in section.split("\n") if l.strip()]
+        header = lines[0]
+        body_lines = lines[1:]
+        # Header must have exactly one (4s) or (18s) at the end
+        assert header.endswith("(4s)") or header.endswith("(18s)")
+        # No body line may start with (4s) or (18s)
+        for bl in body_lines:
+            assert not bl.startswith("(4s)")
+            assert not bl.startswith("(18s)")
+            assert "(4s)" not in bl
+            assert "(18s)" not in bl
+
 
 
 

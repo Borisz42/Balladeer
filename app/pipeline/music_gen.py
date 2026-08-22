@@ -535,10 +535,12 @@ class MusicGenerator:
         # 1. Strip all markdown formatting (*, #, _, `, ~, >, -)
         cleaned = re.sub(r"[*`#_~>]+", " ", line)
         cleaned = re.sub(r"^[0-9\-\.\*•]+\s*", "", cleaned).strip()
+        cleaned = re.sub(r"^(?:\(\s*\d+s\s*\)\s*)+", "", cleaned).strip()
+        cleaned = re.sub(r"\[.*?\]", "", cleaned).strip()
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
         # 2. Check if line starts with header indicators or brackets
-        if not cleaned or (cleaned.startswith("[") and cleaned.endswith("]")):
+        if not cleaned or re.match(r"^\(?\d+s\)?$", cleaned.strip()):
             return None
 
         # 3. Check if line is a header echo (e.g. "Verse 1:", "Chorus -", "Act 1")
@@ -800,8 +802,8 @@ class MusicGenerator:
         # Extract textual blocks/lines from raw_lyrics
         clean_raw = re.sub(r"\[music prompt\].*$", "", raw_lyrics, flags=re.IGNORECASE | re.DOTALL).strip()
 
-        # Parse sections by header tags: e.g. [0:00-0:04] [Intro] or [Verse 1]
-        header_pattern = r"(?:^|\n)\s*(\[\d+:\d+-\d+:\d+\]\s*\[[^\]]+\]|\b(?:Verse\s*\d*|Chorus|Intro|Outro|Bridge)\b[^\n]*)\s*\n"
+        # Parse sections by header tags: e.g. [0:00-0:04] [Intro] (4s) or [Verse 1]
+        header_pattern = r"(?:^|\n)\s*(\[\d+:\d+(?:\.\d+)?\s*-\s*\d+:\d+(?:\.\d+)?\]\s*\[[^\]]+\](?:\s*\([^\)]+\))?|\b(?:Verse\s*\d*|Chorus|Intro|Outro|Bridge)\b[^\n]*)\s*\n"
         splits = re.split(header_pattern, clean_raw, flags=re.IGNORECASE)
 
         named_sections: Dict[str, List[str]] = {}
@@ -859,6 +861,7 @@ class MusicGenerator:
                 # Timed spoken narrative subtitles for instrumental mode
                 candidate_lines = named_sections.get(act_key) or (unnamed_blocks.pop(0) if unnamed_blocks else [])
                 joined = " ".join(candidate_lines) if candidate_lines else ""
+                joined = re.sub(r"^(?:\(\s*\d+s\s*\)\s*)+", "", joined).strip()
                 joined = re.sub(r"\[.*?\]", "", joined).strip()
                 min_words_for_dur = 5 if dur <= 5.0 else max(16, int(dur * 1.6))
 
