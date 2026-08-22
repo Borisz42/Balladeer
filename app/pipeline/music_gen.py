@@ -600,22 +600,27 @@ class MusicGenerator:
         }
         return (w1, w2) in phonetic_pairs or (w2, w1) in phonetic_pairs
 
-    def _format_subtitles_into_short_lines(self, text: str, words_per_line: int = 11) -> str:
-        """Formats long spoken subtitle paragraphs into natural, clean 1-2 sentence lines without run-ons."""
+    def _format_subtitles_into_short_lines(self, text: str, words_per_line: int = 9) -> str:
+        """Formats long spoken subtitle paragraphs into natural, clean 1-2 sentence lines without run-ons or breaking hyphenated words."""
         if not text:
             return ""
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
         lines = []
         for s in sentences:
             words = s.split()
-            if len(words) <= words_per_line + 3:
+            if len(words) <= words_per_line + 2:
                 lines.append(s)
             else:
-                # Split long sentences cleanly at commas or mid-point
-                clauses = [c.strip() for c in re.split(r"[,;—–\-]\s*", s) if c.strip()]
+                # Split long sentences cleanly at punctuation (, ; — –) but NOT at intra-word hyphens like Le Pré-Saint-Gervais
+                clauses = [c.strip() for c in re.split(r"[,;—–]\s*", s) if c.strip()]
                 if len(clauses) >= 2:
-                    lines.append(", ".join(clauses[:len(clauses)//2]) + ",")
-                    lines.append(", ".join(clauses[len(clauses)//2:]))
+                    mid_clause = max(1, len(clauses) // 2)
+                    c1 = ", ".join(clauses[:mid_clause])
+                    if not c1.endswith((".", "!", "?", ",")):
+                        c1 += ","
+                    c2 = ", ".join(clauses[mid_clause:])
+                    lines.append(c1)
+                    lines.append(c2)
                 else:
                     mid = len(words) // 2
                     lines.append(" ".join(words[:mid]))
@@ -683,7 +688,7 @@ class MusicGenerator:
         if not raw_sentences:
             raw_sentences = [cleaned]
 
-        target_words = max(6, int(dur * 2.3))
+        target_words = max(6, int(dur * 2.2))
 
         # Check special case for short Intro / Outro (dur <= 5.0)
         is_intro_or_outro = any(k in act_type.lower() for k in ("intro", "outro")) or dur <= 5.0
@@ -703,7 +708,7 @@ class MusicGenerator:
 
             # If sentence is longer, try breaking cleanly at a comma/clause boundary
             first_s = raw_sentences[0]
-            clauses = [c.strip() for c in re.split(r"[,;—–\-]", first_s) if c.strip()]
+            clauses = [c.strip() for c in re.split(r"[,;—–]", first_s) if c.strip()]
             for c in clauses:
                 c_words = c.split()
                 if 4 <= len(c_words) <= 10:
@@ -738,6 +743,8 @@ class MusicGenerator:
             if last_w in {"a", "an", "the", "of", "to", "in", "on", "with", "and", "as", "for", "at", "by", "from", "casting", "amidst", "near", "where", "which", "that"}:
                 res = " ".join(res.split()[:-1])
             res += "."
+
+        return res
 
         return res
 
@@ -865,16 +872,19 @@ class MusicGenerator:
                 joined = re.sub(r"\[.*?\]", "", joined).strip()
                 min_words_for_dur = 5 if dur <= 5.0 else max(16, int(dur * 1.6))
 
-                if len(joined.split()) >= min_words_for_dur:
-                    narration_text = self._trim_narration_to_complete_sentences(joined, dur, act_type)
-                elif len(joined.split()) >= 4 and dur > 5.0:
-                    fb = self._create_fallback_narration_subtitles(act, act_idx, dur)
-                    combined_text = f"{joined} {fb}"
-                    narration_text = self._trim_narration_to_complete_sentences(combined_text, dur, act_type)
+                if candidate_lines and len(candidate_lines) >= 3 and all(len(l.split()) <= 16 for l in candidate_lines):
+                    formatted_subs = "\n".join(candidate_lines)
                 else:
-                    narration_text = self._create_fallback_narration_subtitles(act, act_idx, dur)
+                    if len(joined.split()) >= min_words_for_dur:
+                        narration_text = self._trim_narration_to_complete_sentences(joined, dur, act_type)
+                    elif len(joined.split()) >= 4 and dur > 5.0:
+                        fb = self._create_fallback_narration_subtitles(act, act_idx, dur)
+                        combined_text = f"{joined} {fb}"
+                        narration_text = self._trim_narration_to_complete_sentences(combined_text, dur, act_type)
+                    else:
+                        narration_text = self._create_fallback_narration_subtitles(act, act_idx, dur)
 
-                formatted_subs = self._format_subtitles_into_short_lines(narration_text)
+                    formatted_subs = self._format_subtitles_into_short_lines(narration_text)
                 output_blocks.append(f"{tag}\n{formatted_subs}")
             elif act.get("is_instrumental"):
                 summary = act.get("directions") or "Atmospheric acoustic guitar swell"

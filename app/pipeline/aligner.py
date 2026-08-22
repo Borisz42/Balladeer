@@ -63,15 +63,18 @@ class AudioAligner:
         blocks = [b.strip() for b in subtitles_text.split("\n\n") if b.strip()]
         aligned_words: List[AlignedWordModel] = []
         b_grid = beat_grid or []
+        global_line_idx = 0
 
-        for line_idx, block in enumerate(blocks):
+        for block in blocks:
             # Parse timestamp tag: [0:00-0:04] or [00:00.00-00:04.00]
             lines = [l.strip() for l in block.split("\n") if l.strip()]
             if not lines:
                 continue
 
             header = lines[0]
-            body_lines = lines[1:] if len(lines) > 1 else []
+            body_lines = [l for l in lines[1:] if l and not l.startswith("[") and not re.match(r"^\(?\d+s\)?$", l)]
+            if not body_lines:
+                continue
 
             # Extract start and end seconds
             match = re.search(r"\[(\d+):(\d+(?:\.\d+)?)\s*-\s*(\d+):(\d+(?:\.\d+)?)\]", header)
@@ -82,35 +85,40 @@ class AudioAligner:
             else:
                 continue
 
-            # Extract words from body lines
-            raw_text = " ".join(body_lines)
-            raw_text = re.sub(r"\[.*?\]", "", raw_text)  # Remove any bracketed tags
-            words = [w.strip() for w in re.split(r"\s+", raw_text) if w.strip()]
-            if not words:
+            # Calculate total words across this section
+            total_section_words = sum(len(re.split(r"\s+", l)) for l in body_lines if l.strip())
+            if total_section_words == 0:
                 continue
 
             section_dur = max(1.0, end_sec - start_sec)
-            # Allocate duration per word (~2.2 words per second)
-            word_dur = min(0.6, max(0.25, (section_dur * 0.9) / len(words)))
+            word_dur = min(0.6, max(0.25, (section_dur * 0.9) / total_section_words))
             cur_time = start_sec
 
-            for w in words:
-                w_start = round(cur_time, 4)
-                w_end = round(cur_time + word_dur, 4)
-                s_start, b_idx = self.snap_to_beat(w_start, b_grid) if b_grid else (w_start, None)
-                s_end, _ = self.snap_to_beat(w_end, b_grid) if b_grid else (w_end, None)
-                aligned_words.append(
-                    AlignedWordModel(
-                        word=w,
-                        start=w_start,
-                        end=w_end,
-                        snapped_start=s_start,
-                        snapped_end=max(s_start + 0.1, s_end),
-                        beat_index=b_idx,
-                        line_index=line_idx
+            for line in body_lines:
+                clean_line_text = re.sub(r"\[.*?\]", "", line).strip()
+                words = [w.strip() for w in re.split(r"\s+", clean_line_text) if w.strip()]
+                if not words:
+                    continue
+
+                for w in words:
+                    w_start = round(cur_time, 4)
+                    w_end = round(cur_time + word_dur, 4)
+                    s_start, b_idx = self.snap_to_beat(w_start, b_grid) if b_grid else (w_start, None)
+                    s_end, _ = self.snap_to_beat(w_end, b_grid) if b_grid else (w_end, None)
+                    aligned_words.append(
+                        AlignedWordModel(
+                            word=w,
+                            start=w_start,
+                            end=w_end,
+                            snapped_start=s_start,
+                            snapped_end=max(s_start + 0.1, s_end),
+                            beat_index=b_idx,
+                            line_index=global_line_idx
+                        )
                     )
-                )
-                cur_time += word_dur
+                    cur_time += word_dur
+
+                global_line_idx += 1
 
         return aligned_words
 
