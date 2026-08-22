@@ -533,9 +533,17 @@ export default function App() {
     try {
       await shutdownServer();
       setIsShuttingDown(true);
+      setTimeout(() => {
+        window.open('', '_self', '');
+        window.close();
+      }, 500);
     } catch (err) {
       console.error('Shutdown request error:', err);
       setIsShuttingDown(true);
+      setTimeout(() => {
+        window.open('', '_self', '');
+        window.close();
+      }, 500);
     }
   };
 
@@ -548,11 +556,17 @@ export default function App() {
           </div>
           <h2 className="text-xl font-bold text-white">Balladeer Server Stopped</h2>
           <p className="text-sm text-slate-400 leading-relaxed">
-            Database WAL checkpoints and GPU memory buffers have been cleanly flushed and released.
+            Database WAL checkpoints and GPU memory buffers have been cleanly flushed and released. Terminal window closed.
           </p>
-          <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-slate-400">
-            You may now safely close this browser tab and the Command Prompt window.
-          </div>
+          <button
+            onClick={() => {
+              window.open('', '_self', '');
+              window.close();
+            }}
+            className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-medium text-sm rounded-xl transition-all border border-slate-700 cursor-pointer"
+          >
+            Close Tab
+          </button>
         </div>
       </div>
     );

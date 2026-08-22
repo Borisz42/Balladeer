@@ -67,8 +67,14 @@ def update_system_settings(req: UpdateSettingsRequest) -> Dict[str, Any]:
     return get_system_settings()
 
 
+_shutdown_completed = False
 
 def perform_clean_shutdown():
+    global _shutdown_completed
+    if _shutdown_completed:
+        return
+    _shutdown_completed = True
+
     logger.info("================================================================")
     logger.info("   Balladeer: Performing Graceful System Cleanup & Shutdown...  ")
     logger.info("================================================================")
@@ -93,11 +99,21 @@ def perform_clean_shutdown():
 async def async_shutdown_process():
     await asyncio.sleep(0.5)
     perform_clean_shutdown()
-    # Trigger SIGINT/SIGTERM to uvicorn
+    # Trigger exit signal to uvicorn/process
     if sys.platform == "win32":
-        os.kill(os.getpid(), signal.SIGINT)
+        try:
+            os.kill(os.getpid(), signal.SIGINT)
+        except Exception:
+            pass
+        await asyncio.sleep(0.8)
+        os._exit(0)
     else:
-        os.kill(os.getpid(), signal.SIGTERM)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            pass
+        await asyncio.sleep(0.8)
+        os._exit(0)
 
 @router.post("/shutdown")
 async def shutdown_server(background_tasks: BackgroundTasks):

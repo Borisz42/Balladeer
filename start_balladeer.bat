@@ -45,23 +45,21 @@ if %ERRORLEVEL% equ 0 (
     )
 )
 
-REM 4. Launch web browser in background after 2 seconds
-start "" powershell -NoProfile -Command "Start-Sleep -Seconds 2; Start-Process 'http://localhost:8000'"
+REM 4. Launch web browser in background only when the backend server is fully ready
+start "" powershell -NoProfile -Command "$url='http://127.0.0.1:8000/api/health'; for ($i=0; $i -lt 120; $i++) { Start-Sleep -Milliseconds 400; try { $res = Invoke-RestMethod -Uri $url -TimeoutSec 1 -ErrorAction Stop; if ($res.status -eq 'healthy') { Start-Process 'http://localhost:8000'; break } } catch {} }"
 
 echo.
 echo ===============================================================================
 echo [*] Starting Balladeer Server on http://localhost:8000 ...
 echo [*] Server logs and GPU memory stats will stream below.
 echo [*] Keep this window OPEN while using Balladeer.
-echo [*] Press Ctrl+C in this window to stop the server anytime.
+echo [*] Press Ctrl+C or click Shutdown in UI to stop the server anytime.
 echo ===============================================================================
 echo.
 
 REM 5. Launch FastAPI backend in the foreground
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-echo.
-echo ===============================================================================
-echo [*] Balladeer server stopped.
-echo ===============================================================================
-pause
+REM 6. Clean exit terminal window on shutdown
+exit
+

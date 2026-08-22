@@ -36,15 +36,26 @@ if (-not (Test-Path "node_modules")) {
 & npm run build
 Pop-Location
 
-# Open browser after 2 seconds
+# Open browser only after backend server is fully ready and responding
 Start-Job -ScriptBlock {
-    Start-Sleep -Seconds 2
-    Start-Process "http://localhost:8000"
+    $url = "http://127.0.0.1:8000/api/health"
+    $maxAttempts = 120
+    for ($i = 0; $i -lt $maxAttempts; $i++) {
+        Start-Sleep -Milliseconds 400
+        try {
+            $resp = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 1 -ErrorAction Stop
+            if ($resp.status -eq "healthy") {
+                Start-Process "http://localhost:8000"
+                break
+            }
+        } catch {}
+    }
 } | Out-Null
 
 Write-Host ""
 Write-Host "[*] Starting Uvicorn server on http://localhost:8000 ..." -ForegroundColor Cyan
-Write-Host "[*] Logs will stream below. Press Ctrl+C to stop." -ForegroundColor Gray
+Write-Host "[*] Logs will stream below. Press Ctrl+C or use Shutdown in UI to stop." -ForegroundColor Gray
 Write-Host ""
 
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Exit 0
